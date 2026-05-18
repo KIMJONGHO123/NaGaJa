@@ -76,6 +76,11 @@ class SettingsService extends ChangeNotifier {
         }
         data['updatedAt'] = now;
 
+        // 구버전 snake_case 필드 삭제
+        data['home_address'] = FieldValue.delete();
+        data['school_address'] = FieldValue.delete();
+        data['prep_minutes'] = FieldValue.delete();
+
         await _userDoc!.set(data, SetOptions(merge: true));
       } catch (_) {}
     }
