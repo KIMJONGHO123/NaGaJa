@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
+import 'services/settings_service.dart';
 import 'views/auth/login_screen.dart';
 import 'views/main_shell.dart';
 
@@ -45,7 +46,9 @@ class _AuthGate extends StatelessWidget {
         }
         // 로그인 상태에 따라 화면 분기
         if (snapshot.hasData) {
-          return const MainShell(); // 로그인 됨 → 메인
+          // 로그인 직후 Firestore에서 최신 설정 동기화
+          SettingsService.instance.reloadFromFirestore();
+          return const MainShell();
         }
         return const LoginScreen(); // 로그아웃 상태 → 로그인
       },

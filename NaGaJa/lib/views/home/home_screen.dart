@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/settings_service.dart';
 import '../late_response/late_response_screen.dart';
+import 'circular_gauge.dart';
 
 enum _Status { free, goNow, lateRisk }
 
@@ -88,36 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _Status.lateRisk => const Color(0xFFF44336),
       };
 
-  String get _statusLabel => switch (_status) {
-        _Status.free     => '여유',
-        _Status.goNow    => '나가자!',
-        _Status.lateRisk => '지각 위기',
-      };
-
-  String get _statusSubtext {
-    if (_nextClassTime == null) return '예정된 수업이 없습니다';
-    final remaining = _nextClassTime!.difference(_now).inMinutes;
-    return switch (_status) {
-      _Status.free     => '${remaining - _travelMinutes - _prepMinutes}분 여유 있음',
-      _Status.goNow    => '지금 준비를 시작하세요',
-      _Status.lateRisk => '택시 마지노선을 확인하세요',
-    };
-  }
-
-  Duration get _remaining =>
-      _nextClassTime != null ? _nextClassTime!.difference(_now) : Duration.zero;
-
   String _fmt(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
-  String _fmtDuration(Duration d) {
-    if (d.isNegative) return '지각';
-    final m = d.inMinutes;
-    final s = d.inSeconds.remainder(60);
-    if (m >= 60) return '${d.inHours}시간 ${m.remainder(60)}분';
-    if (m > 0) return '${m}분 ${s}초';
-    return '${s}초';
-  }
 
   DateTime? get _shouldDepartAt => _nextClassTime?.subtract(
       Duration(minutes: _prepMinutes + _travelMinutes));
@@ -139,9 +113,14 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const SizedBox(height: 20),
               _buildClock(),
-              const SizedBox(height: 32),
-              _buildStatusGauge(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              CircularGauge(
+                classTime: _nextClassTime,
+                now: _now,
+                prepMinutes: _prepMinutes,
+                travelMinutes: _travelMinutes,
+              ),
+              const SizedBox(height: 16),
               _buildInfoCard(),
               const SizedBox(height: 16),
               if (_status == _Status.lateRisk && _nextClassTime != null) ...[
@@ -180,47 +159,6 @@ class _HomeScreenState extends State<HomeScreen> {
           style: TextStyle(fontSize: 14, color: Colors.grey[600]),
         ),
       ],
-    );
-  }
-
-  Widget _buildStatusGauge() {
-    final color = _statusColor;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
-      width: 200,
-      height: 200,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color.withValues(alpha: 0.1),
-        border: Border.all(color: color, width: 5),
-        boxShadow: [
-          BoxShadow(
-              color: color.withValues(alpha: 0.25), blurRadius: 24, spreadRadius: 4),
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 300),
-            style: TextStyle(
-                fontSize: 28, fontWeight: FontWeight.bold, color: color),
-            child: Text(_statusLabel),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _nextClassTime != null ? _fmtDuration(_remaining) : '--',
-            style: TextStyle(
-                fontSize: 18, color: color, fontWeight: FontWeight.w500),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _statusSubtext,
-            style: TextStyle(fontSize: 11, color: color.withValues(alpha: 0.8)),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
     );
   }
 
