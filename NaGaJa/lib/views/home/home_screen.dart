@@ -17,12 +17,12 @@ class _HomeScreenState extends State<HomeScreen> {
   late final Timer _clockTimer;
   DateTime _now = DateTime.now();
 
-  DateTime? _nextClassTime; // 설정에서 계산한 다음 수업 시각
-  final int _travelMinutes = 20; // 추후 Kakao Maps API로 대체 예정
+  DateTime? _nextClassTime;
+  final int _travelMinutes = 20; // 추후 Map API로 대체
 
-  bool _readyPressed = false;
   bool _departed = false;
   bool _loading = true;
+  DateTime? _prepStartedAt;
 
   int get _prepMinutes => SettingsService.instance.prepMinutes;
 
@@ -47,24 +47,24 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  // 설정된 시간표에서 지금 이후의 가장 가까운 수업을 찾음 (최대 7일 탐색)
+  // 오늘 이후 가장 가까운 수업 탐색 (최대 7일)
   void _recomputeNextClass() {
-    final schedule = SettingsService.instance.schedule;
+    final svc = SettingsService.instance;
     final now = DateTime.now();
     for (int i = 0; i < 7; i++) {
       final date = now.add(Duration(days: i));
-      final weekday = date.weekday; // 1=월 ~ 7=일
-      if (weekday > 5) continue; // 주말 건너뜀
-      final time = schedule[weekday];
+      final weekday = date.weekday;
+      if (weekday > 5) continue;
+      final time = svc.scheduleTime(weekday);
       if (time == null) continue;
-      final classTime = DateTime(
-          date.year, date.month, date.day, time.hour, time.minute);
+      final classTime =
+          DateTime(date.year, date.month, date.day, time.hour, time.minute);
       if (classTime.isAfter(now)) {
         _nextClassTime = classTime;
         return;
       }
     }
-    _nextClassTime = null; // 7일 내 수업 없음
+    _nextClassTime = null;
   }
 
   @override
@@ -92,12 +92,17 @@ class _HomeScreenState extends State<HomeScreen> {
   String _fmt(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
+  DateTime? get _shouldDepartAt =>
+      _nextClassTime?.subtract(Duration(minutes: _prepMinutes + _travelMinutes));
 
-  DateTime? get _shouldDepartAt => _nextClassTime?.subtract(
-      Duration(minutes: _prepMinutes + _travelMinutes));
+  DateTime? get _taxiDeadline =>
+      _nextClassTime?.subtract(Duration(minutes: (_travelMinutes * 0.7).round()));
 
-  DateTime? get _taxiDeadline => _nextClassTime
-      ?.subtract(Duration(minutes: (_travelMinutes * 0.7).round()));
+  String? get _nextCourseName {
+    if (_nextClassTime == null) return null;
+    final name = SettingsService.instance.courseName(_nextClassTime!.weekday);
+    return name.isNotEmpty ? name : null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -128,6 +133,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 16),
               ],
               _buildActionButtons(),
+              if (_prepStartedAt != null) ...[
+                const SizedBox(height: 12),
+                _buildPrepTimer(),
+              ],
               const SizedBox(height: 32),
             ],
           ),
@@ -154,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 4),
         Text(
           _nextClassTime != null
-              ? '다음 수업 ${_fmt(_nextClassTime!)}'
+              ? '다음 수업 ${_fmt(_nextClassTime!)}${_nextCourseName != null ? ' · $_nextCourseName' : ''}'
               : '예정된 수업 없음',
           style: TextStyle(fontSize: 14, color: Colors.grey[600]),
         ),
@@ -179,9 +188,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _infoItem('준비', '${_prepMinutes}분', Icons.coffee_outlined),
+          _infoItem('준비', '$_prepMinutes분', Icons.coffee_outlined),
           _vertDivider(),
-          _infoItem('이동', '${_travelMinutes}분', Icons.directions_bus_outlined),
+          _infoItem('이동', '$_travelMinutes분', Icons.directions_bus_outlined),
           _vertDivider(),
           _infoItem('출발', departStr, Icons.schedule),
         ],
@@ -256,6 +265,34 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildPrepTimer() {
+    final elapsed = _now.difference(_prepStartedAt!);
+    final m = elapsed.inMinutes;
+    final s = elapsed.inSeconds.remainder(60);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.blue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.timer_outlined, size: 18, color: Colors.blue),
+          const SizedBox(width: 8),
+          Text(
+            '준비 중 ${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}',
+            style: const TextStyle(
+                fontSize: 14,
+                color: Colors.blue,
+                fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActionButtons() {
     if (_departed) {
       return SizedBox(
@@ -270,8 +307,8 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: const Color(0xFF4CAF50),
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 16),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
           ),
         ),
       );
@@ -281,16 +318,16 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: _readyPressed
+            onPressed: _prepStartedAt != null
                 ? null
                 : () {
-                    setState(() => _readyPressed = true);
+                    setState(() => _prepStartedAt = DateTime.now());
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('준비 타이머가 시작됩니다!')),
                     );
                   },
             icon: const Icon(Icons.alarm_on),
-            label: Text(_readyPressed ? '준비 중...' : '준비 시작'),
+            label: Text(_prepStartedAt != null ? '준비 중...' : '준비 시작'),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
@@ -302,9 +339,17 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: ElevatedButton.icon(
             onPressed: () {
+              final departedAt = DateTime.now();
+              if (_prepStartedAt != null) {
+                SettingsService.instance.savePrepLog(
+                  startedAt: _prepStartedAt!,
+                  departedAt: departedAt,
+                  classTime: _nextClassTime,
+                );
+              }
               setState(() => _departed = true);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('출발 시각 ${_fmt(_now)} 기록됨')),
+                SnackBar(content: Text('출발 시각 ${_fmt(departedAt)} 기록됨')),
               );
             },
             icon: const Icon(Icons.directions_run),

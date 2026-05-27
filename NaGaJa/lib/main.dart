@@ -5,6 +5,7 @@ import 'firebase_options.dart';
 import 'services/settings_service.dart';
 import 'views/auth/login_screen.dart';
 import 'views/main_shell.dart';
+import 'views/onboarding/onboarding_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,29 +30,88 @@ class NagajaApp extends StatelessWidget {
   }
 }
 
-// 로그인 상태를 스트림으로 감지해 화면을 자동으로 전환
-class _AuthGate extends StatelessWidget {
+class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // 아직 Firebase 응답 대기 중
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        // 로그인 상태에 따라 화면 분기
-        if (snapshot.hasData) {
-          // 로그인 직후 Firestore에서 최신 설정 동기화
-          SettingsService.instance.reloadFromFirestore();
-          return const MainShell();
+
+        if (!snapshot.hasData) {
+          return const LoginScreen();
         }
-        return const LoginScreen(); // 로그아웃 상태 → 로그인
+
+        // 로그인 상태 → 설정 로드 후 온보딩 여부 판단
+        return _UserRouter(user: snapshot.data!);
       },
     );
+  }
+}
+
+// 로그인된 유저의 Firestore 상태를 확인해 화면 분기
+class _UserRouter extends StatefulWidget {
+  final User user;
+  const _UserRouter({required this.user});
+
+  @override
+  State<_UserRouter> createState() => _UserRouterState();
+}
+
+class _UserRouterState extends State<_UserRouter> {
+  bool _checking = true;
+
+  @override
+  void initState() {
+    super.initState();
+    SettingsService.instance.addListener(_onSettingsChanged);
+    _checkOnboarding();
+  }
+
+  @override
+  void dispose() {
+    SettingsService.instance.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _checkOnboarding() async {
+    final svc = SettingsService.instance;
+    await svc.reloadFromFirestore();
+
+    if (svc.userModel == null) {
+      await svc.createNewUser();
+    }
+
+    if (mounted) setState(() => _checking = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checking) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!SettingsService.instance.isOnboardingComplete) {
+      return const OnboardingScreen();
+    }
+
+    return const MainShell();
   }
 }

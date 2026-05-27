@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../models/user_model.dart';
 import '../../services/settings_service.dart';
 
 enum TransportMode { bus, subway, walk }
@@ -13,10 +14,13 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _homeController = TextEditingController();
   final _schoolController = TextEditingController();
+  final Map<int, TextEditingController> _courseControllers = {
+    for (int i = 1; i <= 5; i++) i: TextEditingController(),
+  };
 
   TransportMode _transport = TransportMode.bus;
   int _prepMinutes = 30;
-  final Map<int, TimeOfDay?> _schedule = {};
+  final Map<int, TimeOfDay?> _times = {};
 
   bool _loading = true;
 
@@ -28,19 +32,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     await SettingsService.instance.load();
-    final s = SettingsService.instance;
+    final svc = SettingsService.instance;
     setState(() {
       for (int day = 1; day <= 5; day++) {
-        _schedule[day] = s.schedule[day];
+        _times[day] = svc.scheduleTime(day);
+        _courseControllers[day]!.text = svc.courseName(day);
       }
-      _prepMinutes = s.prepMinutes;
-      _transport = switch (s.transport) {
+      _prepMinutes = svc.prepMinutes;
+      _transport = switch (svc.transport) {
         'subway' => TransportMode.subway,
         'walk'   => TransportMode.walk,
         _        => TransportMode.bus,
       };
-      _homeController.text = s.homeAddress;
-      _schoolController.text = s.schoolAddress;
+      _homeController.text = svc.homeAddress;
+      _schoolController.text = svc.schoolAddress;
       _loading = false;
     });
   }
@@ -49,20 +54,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _homeController.dispose();
     _schoolController.dispose();
+    for (final c in _courseControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _save() async {
+    final scheduleMap = <int, ScheduleEntry>{};
+    for (int day = 1; day <= 5; day++) {
+      scheduleMap[day] = ScheduleEntry(
+        day: day,
+        startTime: _times[day],
+        courseName: _courseControllers[day]!.text.trim(),
+      );
+    }
     await SettingsService.instance.save(
-      schedule: _schedule,
-      prepMinutes: _prepMinutes,
+      homeAddress: _homeController.text,
+      schoolAddress: _schoolController.text,
       transport: switch (_transport) {
         TransportMode.bus    => 'bus',
         TransportMode.subway => 'subway',
         TransportMode.walk   => 'walk',
       },
-      homeAddress: _homeController.text,
-      schoolAddress: _schoolController.text,
+      prepMinutes: _prepMinutes,
+      scheduleMap: scheduleMap,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -119,7 +135,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Text(
         title,
         style: TextStyle(
-            fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[600]),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600]),
       ),
     );
   }
@@ -143,41 +161,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _card(
       child: Column(
         children: List.generate(5, (i) {
-          final weekday = i + 1;
-          final time = _schedule[weekday];
+          final day = i + 1;
+          final time = _times[day];
           return Column(
             children: [
-              ListTile(
-                title: Text(days[i]),
-                trailing: GestureDetector(
-                  onTap: () async {
-                    final picked = await showTimePicker(
-                      context: context,
-                      initialTime: time ?? const TimeOfDay(hour: 9, minute: 0),
-                    );
-                    if (picked != null) {
-                      setState(() => _schedule[weekday] = picked);
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: time != null
-                          ? Colors.blue.withValues(alpha: 0.1)
-                          : Colors.grey.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      child: Text(days[i],
+                          style: const TextStyle(fontSize: 15)),
                     ),
-                    child: Text(
-                      time != null
-                          ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
-                          : '없음',
-                      style: TextStyle(
-                        color: time != null ? Colors.blue : Colors.grey,
-                        fontWeight: FontWeight.w500,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _courseControllers[day],
+                        decoration: InputDecoration(
+                          hintText: '과목명',
+                          hintStyle: TextStyle(
+                              color: Colors.grey[400], fontSize: 14),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        style: const TextStyle(fontSize: 14),
                       ),
                     ),
-                  ),
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime:
+                              time ?? const TimeOfDay(hour: 9, minute: 0),
+                        );
+                        if (picked != null) {
+                          setState(() => _times[day] = picked);
+                        }
+                      },
+                      onLongPress: () =>
+                          setState(() => _times[day] = null),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: time != null
+                              ? Colors.blue.withValues(alpha: 0.1)
+                              : Colors.grey.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          time != null
+                              ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
+                              : '없음',
+                          style: TextStyle(
+                            color:
+                                time != null ? Colors.blue : Colors.grey,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (i < 4) const Divider(height: 1, indent: 16),
@@ -194,7 +242,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _locationTile('출발지 (집)', _homeController, Icons.home_outlined),
           const Divider(height: 1, indent: 56),
-          _locationTile('목적지 (학교)', _schoolController, Icons.school_outlined),
+          _locationTile(
+              '목적지 (학교)', _schoolController, Icons.school_outlined),
         ],
       ),
     );
@@ -284,7 +333,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               max: 90,
               divisions: 16,
               label: '$_prepMinutes분',
-              onChanged: (v) => setState(() => _prepMinutes = v.round()),
+              onChanged: (v) =>
+                  setState(() => _prepMinutes = v.round()),
             ),
             Text('세면, 옷 입기 등 집을 나서기까지 걸리는 시간',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -306,7 +356,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SnackBar(content: Text('BLE 스캔 중...')),
           ),
           style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8)),
           ),
