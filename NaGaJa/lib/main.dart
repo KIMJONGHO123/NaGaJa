@@ -30,14 +30,9 @@ class NagajaApp extends StatelessWidget {
   }
 }
 
-class _AuthGate extends StatefulWidget {
+class _AuthGate extends StatelessWidget {
   const _AuthGate();
 
-  @override
-  State<_AuthGate> createState() => _AuthGateState();
-}
-
-class _AuthGateState extends State<_AuthGate> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
@@ -45,25 +40,18 @@ class _AuthGateState extends State<_AuthGate> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+              body: Center(child: CircularProgressIndicator()));
         }
-
-        if (!snapshot.hasData) {
-          return const LoginScreen();
-        }
-
-        // 로그인 상태 → 설정 로드 후 온보딩 여부 판단
-        return _UserRouter(user: snapshot.data!);
+        if (!snapshot.hasData) return const LoginScreen();
+        return const _UserRouter();
       },
     );
   }
 }
 
-// 로그인된 유저의 Firestore 상태를 확인해 화면 분기
+/// 로그인 후: Firestore 확인 → 신규 유저면 users 문서 생성 → 스케줄 없으면 온보딩
 class _UserRouter extends StatefulWidget {
-  final User user;
-  const _UserRouter({required this.user});
+  const _UserRouter();
 
   @override
   State<_UserRouter> createState() => _UserRouterState();
@@ -76,7 +64,7 @@ class _UserRouterState extends State<_UserRouter> {
   void initState() {
     super.initState();
     SettingsService.instance.addListener(_onSettingsChanged);
-    _checkOnboarding();
+    _init();
   }
 
   @override
@@ -89,12 +77,15 @@ class _UserRouterState extends State<_UserRouter> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _checkOnboarding() async {
+  Future<void> _init() async {
     final svc = SettingsService.instance;
-    await svc.reloadFromFirestore();
 
-    if (svc.userModel == null) {
+    // users 문서가 없으면 신규 생성
+    final exists = await svc.userExists();
+    if (!exists) {
       await svc.createNewUser();
+    } else {
+      await svc.reloadFromFirestore();
     }
 
     if (mounted) setState(() => _checking = false);
@@ -103,12 +94,11 @@ class _UserRouterState extends State<_UserRouter> {
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    if (!SettingsService.instance.isOnboardingComplete) {
+    // 스케줄이 하나도 없으면 → 온보딩
+    if (SettingsService.instance.schedules.isEmpty) {
       return const OnboardingScreen();
     }
 

@@ -1,107 +1,132 @@
 import 'package:flutter/material.dart';
 
-class ScheduleEntry {
-  final int day; // 1=월 ~ 5=금
-  final TimeOfDay? startTime;
-  final String courseName;
-
-  const ScheduleEntry({
-    required this.day,
-    required this.startTime,
-    this.courseName = '',
-  });
-
-  // Firestore 문서 → 객체
-  factory ScheduleEntry.fromMap(int day, Map<String, dynamic> data) {
-    TimeOfDay? time;
-    final raw = data['startTime'] as String?;
-    if (raw != null && raw.length == 4) {
-      time = TimeOfDay(
-        hour: int.parse(raw.substring(0, 2)),
-        minute: int.parse(raw.substring(2, 4)),
-      );
-    }
-    return ScheduleEntry(
-      day: day,
-      startTime: time,
-      courseName: (data['courseName'] as String?) ?? '',
-    );
-  }
-
-  // 객체 → Firestore 저장용 Map
-  Map<String, dynamic> toMap() => {
-        'day': day,
-        'startTime': startTime == null
-            ? ''
-            : '${startTime!.hour.toString().padLeft(2, '0')}${startTime!.minute.toString().padLeft(2, '0')}',
-        'courseName': courseName,
-      };
-}
-
+/// users/{userId}
 class UserModel {
   final String userId;
   final String name;
   final String email;
-  final String homeAddress;
-  final String schoolAddress;
-  final String transport; // bus / subway / walk
   final int prepMinutes;
   final int defaultTravelMinutes;
-  final bool isOnboardingComplete;
+  final List<String> homeWifiSsids;
+  final List<String> schoolWifiSsids;
 
   const UserModel({
     required this.userId,
     required this.name,
     required this.email,
-    required this.homeAddress,
-    required this.schoolAddress,
-    required this.transport,
     required this.prepMinutes,
     required this.defaultTravelMinutes,
-    required this.isOnboardingComplete,
+    required this.homeWifiSsids,
+    required this.schoolWifiSsids,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> data) => UserModel(
         userId: (data['userId'] as String?) ?? '',
         name: (data['name'] as String?) ?? '',
         email: (data['email'] as String?) ?? '',
-        homeAddress: (data['homeAddress'] as String?) ?? '',
-        schoolAddress: (data['schoolAddress'] as String?) ?? '',
-        transport: (data['transport'] as String?) ?? 'bus',
         prepMinutes: (data['prepMinutes'] as int?) ?? 30,
         defaultTravelMinutes: (data['defaultTravelMinutes'] as int?) ?? 20,
-        isOnboardingComplete: (data['isOnboardingComplete'] as bool?) ?? false,
+        homeWifiSsids: List<String>.from(data['homeWifiSsids'] ?? []),
+        schoolWifiSsids: List<String>.from(data['schoolWifiSsids'] ?? []),
       );
 
   Map<String, dynamic> toMap() => {
         'userId': userId,
         'name': name,
         'email': email,
-        'homeAddress': homeAddress,
-        'schoolAddress': schoolAddress,
-        'transport': transport,
         'prepMinutes': prepMinutes,
         'defaultTravelMinutes': defaultTravelMinutes,
-        'isOnboardingComplete': isOnboardingComplete,
+        'homeWifiSsids': homeWifiSsids,
+        'schoolWifiSsids': schoolWifiSsids,
       };
 
   UserModel copyWith({
-    String? homeAddress,
-    String? schoolAddress,
-    String? transport,
     int? prepMinutes,
     int? defaultTravelMinutes,
-    bool? isOnboardingComplete,
+    List<String>? homeWifiSsids,
+    List<String>? schoolWifiSsids,
   }) =>
       UserModel(
         userId: userId,
         name: name,
         email: email,
-        homeAddress: homeAddress ?? this.homeAddress,
-        schoolAddress: schoolAddress ?? this.schoolAddress,
-        transport: transport ?? this.transport,
         prepMinutes: prepMinutes ?? this.prepMinutes,
         defaultTravelMinutes: defaultTravelMinutes ?? this.defaultTravelMinutes,
-        isOnboardingComplete: isOnboardingComplete ?? this.isOnboardingComplete,
+        homeWifiSsids: homeWifiSsids ?? this.homeWifiSsids,
+        schoolWifiSsids: schoolWifiSsids ?? this.schoolWifiSsids,
       );
+}
+
+/// users/{userId}/schedules/{scheduleId}
+class ScheduleEntry {
+  final String scheduleId;
+  final String userId;
+  final String title;       // 과목명 (예: "자료구조")
+  final int dayOfWeek;      // 1=월 ~ 7=일
+  final String classTime;   // "HH:MM" (예: "09:00")
+  final String targetArrivalTime; // "HH:MM" (예: "08:55")
+  final String startPlaceName;    // 예: "집"
+  final String startAddress;
+  final String destinationName;   // 예: "공학관"
+  final String destinationAddress;
+  final String transportMode; // "BUS" | "SUBWAY" | "WALK"
+  final bool isActive;
+
+  const ScheduleEntry({
+    required this.scheduleId,
+    required this.userId,
+    required this.title,
+    required this.dayOfWeek,
+    required this.classTime,
+    required this.targetArrivalTime,
+    required this.startPlaceName,
+    required this.startAddress,
+    required this.destinationName,
+    required this.destinationAddress,
+    required this.transportMode,
+    required this.isActive,
+  });
+
+  factory ScheduleEntry.fromMap(String id, Map<String, dynamic> data) =>
+      ScheduleEntry(
+        scheduleId: id,
+        userId: (data['userId'] as String?) ?? '',
+        title: (data['title'] as String?) ?? '',
+        dayOfWeek: (data['dayOfWeek'] as int?) ?? 1,
+        classTime: (data['classTime'] as String?) ?? '09:00',
+        targetArrivalTime: (data['targetArrivalTime'] as String?) ?? '08:55',
+        startPlaceName: (data['startPlaceName'] as String?) ?? '집',
+        startAddress: (data['startAddress'] as String?) ?? '',
+        destinationName: (data['destinationName'] as String?) ?? '',
+        destinationAddress: (data['destinationAddress'] as String?) ?? '',
+        transportMode: (data['transportMode'] as String?) ?? 'BUS',
+        isActive: (data['isActive'] as bool?) ?? true,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'scheduleId': scheduleId,
+        'userId': userId,
+        'title': title,
+        'dayOfWeek': dayOfWeek,
+        'classTime': classTime,
+        'targetArrivalTime': targetArrivalTime,
+        'startPlaceName': startPlaceName,
+        'startAddress': startAddress,
+        'destinationName': destinationName,
+        'destinationAddress': destinationAddress,
+        'transportMode': transportMode,
+        'isActive': isActive,
+      };
+
+  /// "HH:MM" 문자열 → TimeOfDay
+  TimeOfDay? get classTimeOfDay {
+    final parts = classTime.split(':');
+    if (parts.length != 2) return null;
+    return TimeOfDay(
+        hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
+
+  /// TimeOfDay → "HH:MM" 문자열
+  static String timeOfDayToString(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 }

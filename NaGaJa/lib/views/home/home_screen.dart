@@ -47,22 +47,20 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  // 오늘 이후 가장 가까운 수업 탐색 (최대 7일)
+  // 오늘 이후 가장 가까운 수업 탐색
   void _recomputeNextClass() {
-    final svc = SettingsService.instance;
+    final next = SettingsService.instance.nextSchedule;
+    if (next == null) { _nextClassTime = null; return; }
+
     final now = DateTime.now();
     for (int i = 0; i < 7; i++) {
       final date = now.add(Duration(days: i));
-      final weekday = date.weekday;
-      if (weekday > 5) continue;
-      final time = svc.scheduleTime(weekday);
-      if (time == null) continue;
-      final classTime =
-          DateTime(date.year, date.month, date.day, time.hour, time.minute);
-      if (classTime.isAfter(now)) {
-        _nextClassTime = classTime;
-        return;
-      }
+      if (date.weekday != next.dayOfWeek) continue;
+      final parts = next.classTime.split(':');
+      if (parts.length != 2) continue;
+      final classTime = DateTime(date.year, date.month, date.day,
+          int.parse(parts[0]), int.parse(parts[1]));
+      if (classTime.isAfter(now)) { _nextClassTime = classTime; return; }
     }
     _nextClassTime = null;
   }
@@ -99,9 +97,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _nextClassTime?.subtract(Duration(minutes: (_travelMinutes * 0.7).round()));
 
   String? get _nextCourseName {
-    if (_nextClassTime == null) return null;
-    final name = SettingsService.instance.courseName(_nextClassTime!.weekday);
-    return name.isNotEmpty ? name : null;
+    final next = SettingsService.instance.nextSchedule;
+    if (next == null || next.title.isEmpty) return null;
+    return next.title;
   }
 
   @override
@@ -344,7 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 SettingsService.instance.savePrepLog(
                   startedAt: _prepStartedAt!,
                   departedAt: departedAt,
-                  classTime: _nextClassTime,
+                  scheduleId: SettingsService.instance.nextSchedule?.scheduleId,
                 );
               }
               setState(() => _departed = true);

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../services/settings_service.dart';
 
-enum TransportMode { bus, subway, walk }
-
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -12,73 +10,41 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _homeController = TextEditingController();
-  final _schoolController = TextEditingController();
-  final Map<int, TextEditingController> _courseControllers = {
-    for (int i = 1; i <= 5; i++) i: TextEditingController(),
-  };
-
-  TransportMode _transport = TransportMode.bus;
   int _prepMinutes = 30;
-  final Map<int, TimeOfDay?> _times = {};
-
+  int _defaultTravelMinutes = 20;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    SettingsService.instance.addListener(_onChanged);
+  }
+
+  @override
+  void dispose() {
+    SettingsService.instance.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadSettings() async {
     await SettingsService.instance.load();
     final svc = SettingsService.instance;
     setState(() {
-      for (int day = 1; day <= 5; day++) {
-        _times[day] = svc.scheduleTime(day);
-        _courseControllers[day]!.text = svc.courseName(day);
-      }
       _prepMinutes = svc.prepMinutes;
-      _transport = switch (svc.transport) {
-        'subway' => TransportMode.subway,
-        'walk'   => TransportMode.walk,
-        _        => TransportMode.bus,
-      };
-      _homeController.text = svc.homeAddress;
-      _schoolController.text = svc.schoolAddress;
+      _defaultTravelMinutes = svc.defaultTravelMinutes;
       _loading = false;
     });
   }
 
-  @override
-  void dispose() {
-    _homeController.dispose();
-    _schoolController.dispose();
-    for (final c in _courseControllers.values) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final scheduleMap = <int, ScheduleEntry>{};
-    for (int day = 1; day <= 5; day++) {
-      scheduleMap[day] = ScheduleEntry(
-        day: day,
-        startTime: _times[day],
-        courseName: _courseControllers[day]!.text.trim(),
-      );
-    }
-    await SettingsService.instance.save(
-      homeAddress: _homeController.text,
-      schoolAddress: _schoolController.text,
-      transport: switch (_transport) {
-        TransportMode.bus    => 'bus',
-        TransportMode.subway => 'subway',
-        TransportMode.walk   => 'walk',
-      },
+  Future<void> _saveUserSettings() async {
+    await SettingsService.instance.saveUserSettings(
       prepMinutes: _prepMinutes,
-      scheduleMap: scheduleMap,
+      defaultTravelMinutes: _defaultTravelMinutes,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,7 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         elevation: 0,
         actions: [
           TextButton(
-            onPressed: _save,
+            onPressed: _saveUserSettings,
             child: const Text('저장'),
           ),
         ],
@@ -110,13 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           _header('시간표'),
-          _buildScheduleCard(),
-          const SizedBox(height: 16),
-          _header('위치'),
-          _buildLocationCard(),
-          const SizedBox(height: 16),
-          _header('교통수단'),
-          _buildTransportCard(),
+          _buildScheduleList(),
           const SizedBox(height: 16),
           _header('개인 설정'),
           _buildPrepTimeCard(),
@@ -129,187 +89,126 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _header(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(
-        title,
-        style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey[600]),
-      ),
-    );
-  }
+  Widget _header(String title) => Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 8),
+        child: Text(title,
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600])),
+      );
 
-  Widget _card({required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)
-        ],
-      ),
-      child: child,
-    );
-  }
+  Widget _card({required Widget child}) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)
+          ],
+        ),
+        child: child,
+      );
 
-  Widget _buildScheduleCard() {
-    const days = ['월', '화', '수', '목', '금'];
-    return _card(
-      child: Column(
-        children: List.generate(5, (i) {
-          final day = i + 1;
-          final time = _times[day];
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 28,
-                      child: Text(days[i],
-                          style: const TextStyle(fontSize: 15)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _courseControllers[day],
-                        decoration: InputDecoration(
-                          hintText: '과목명',
-                          hintStyle: TextStyle(
-                              color: Colors.grey[400], fontSize: 14),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () async {
-                        final picked = await showTimePicker(
-                          context: context,
-                          initialTime:
-                              time ?? const TimeOfDay(hour: 9, minute: 0),
-                        );
-                        if (picked != null) {
-                          setState(() => _times[day] = picked);
-                        }
-                      },
-                      onLongPress: () =>
-                          setState(() => _times[day] = null),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: time != null
-                              ? Colors.blue.withValues(alpha: 0.1)
-                              : Colors.grey.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          time != null
-                              ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
-                              : '없음',
-                          style: TextStyle(
-                            color:
-                                time != null ? Colors.blue : Colors.grey,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (i < 4) const Divider(height: 1, indent: 16),
-            ],
-          );
-        }),
-      ),
-    );
-  }
+  // ── 시간표 목록 ──────────────────────────────────────────────────────────────
+  Widget _buildScheduleList() {
+    final schedules = SettingsService.instance.schedules;
+    final sorted = List<ScheduleEntry>.from(schedules)
+      ..sort((a, b) => a.dayOfWeek != b.dayOfWeek
+          ? a.dayOfWeek.compareTo(b.dayOfWeek)
+          : a.classTime.compareTo(b.classTime));
 
-  Widget _buildLocationCard() {
     return _card(
       child: Column(
         children: [
-          _locationTile('출발지 (집)', _homeController, Icons.home_outlined),
-          const Divider(height: 1, indent: 56),
-          _locationTile(
-              '목적지 (학교)', _schoolController, Icons.school_outlined),
+          ...sorted.asMap().entries.map((e) {
+            final s = e.value;
+            final isLast = e.key == sorted.length - 1;
+            return Column(
+              children: [
+                _scheduleTile(s),
+                if (!isLast) const Divider(height: 1, indent: 16),
+              ],
+            );
+          }),
+          if (sorted.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('등록된 수업이 없습니다',
+                  style: TextStyle(color: Colors.grey)),
+            ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.add_circle_outline, color: Colors.blue),
+            title: const Text('수업 추가',
+                style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w500)),
+            onTap: () => _openScheduleSheet(null),
+          ),
         ],
       ),
     );
   }
 
-  Widget _locationTile(
-      String label, TextEditingController controller, IconData icon) {
+  Widget _scheduleTile(ScheduleEntry s) {
+    const dayNames = ['', '월', '화', '수', '목', '금', '토', '일'];
     return ListTile(
-      leading: Icon(icon, color: Colors.grey[600]),
-      title: Text(label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      subtitle: TextField(
-        controller: controller,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
-        ),
-        style: const TextStyle(fontSize: 15),
+      leading: CircleAvatar(
+        backgroundColor: Colors.blue.withValues(alpha: 0.1),
+        child: Text(dayNames[s.dayOfWeek],
+            style: const TextStyle(
+                color: Colors.blue, fontWeight: FontWeight.bold)),
+      ),
+      title: Text(s.title,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(
+        '${s.classTime} · ${s.destinationName} · ${s.transportMode}',
+        style: const TextStyle(fontSize: 12),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(
+            value: s.isActive,
+            onChanged: (v) => _toggleActive(s, v),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right, color: Colors.grey),
+            onPressed: () => _openScheduleSheet(s),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTransportCard() {
-    final desc = switch (_transport) {
-      TransportMode.bus    => '버스: 배차 대기시간이 이동시간에 추가됩니다',
-      TransportMode.subway => '지하철: 정시성이 높아 보정 없이 적용됩니다',
-      TransportMode.walk   => '도보: 날씨 영향이 가장 크게 반영됩니다',
-    };
-    return _card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('주 교통수단',
-                style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-            const SizedBox(height: 12),
-            SegmentedButton<TransportMode>(
-              segments: const [
-                ButtonSegment(
-                    value: TransportMode.bus,
-                    icon: Icon(Icons.directions_bus),
-                    label: Text('버스')),
-                ButtonSegment(
-                    value: TransportMode.subway,
-                    icon: Icon(Icons.train),
-                    label: Text('지하철')),
-                ButtonSegment(
-                    value: TransportMode.walk,
-                    icon: Icon(Icons.directions_walk),
-                    label: Text('도보')),
-              ],
-              selected: {_transport},
-              onSelectionChanged: (s) =>
-                  setState(() => _transport = s.first),
-            ),
-            const SizedBox(height: 10),
-            Text(desc,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          ],
-        ),
-      ),
+  Future<void> _toggleActive(ScheduleEntry s, bool active) async {
+    final updated = ScheduleEntry(
+      scheduleId: s.scheduleId,
+      userId: s.userId,
+      title: s.title,
+      dayOfWeek: s.dayOfWeek,
+      classTime: s.classTime,
+      targetArrivalTime: s.targetArrivalTime,
+      startPlaceName: s.startPlaceName,
+      startAddress: s.startAddress,
+      destinationName: s.destinationName,
+      destinationAddress: s.destinationAddress,
+      transportMode: s.transportMode,
+      isActive: active,
     );
+    await SettingsService.instance.saveSchedule(updated);
   }
 
+  Future<void> _openScheduleSheet(ScheduleEntry? existing) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ScheduleEditSheet(existing: existing),
+    );
+    setState(() {});
+  }
+
+  // ── 준비시간 카드 ─────────────────────────────────────────────────────────────
   Widget _buildPrepTimeCard() {
     return _card(
       child: Padding(
@@ -320,8 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('개인 준비시간',
-                    style: TextStyle(fontSize: 15)),
+                const Text('개인 준비시간', style: TextStyle(fontSize: 15)),
                 Text('$_prepMinutes분',
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, fontSize: 16)),
@@ -333,10 +231,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               max: 90,
               divisions: 16,
               label: '$_prepMinutes분',
-              onChanged: (v) =>
-                  setState(() => _prepMinutes = v.round()),
+              onChanged: (v) => setState(() => _prepMinutes = v.round()),
             ),
             Text('세면, 옷 입기 등 집을 나서기까지 걸리는 시간',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('기본 이동시간', style: TextStyle(fontSize: 15)),
+                Text('$_defaultTravelMinutes분',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+            Slider(
+              value: _defaultTravelMinutes.toDouble(),
+              min: 5,
+              max: 60,
+              divisions: 11,
+              label: '$_defaultTravelMinutes분',
+              onChanged: (v) =>
+                  setState(() => _defaultTravelMinutes = v.round()),
+            ),
+            Text('지도 API 연동 전 기본값으로 사용됩니다',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600])),
           ],
         ),
@@ -356,14 +274,288 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SnackBar(content: Text('BLE 스캔 중...')),
           ),
           style: ElevatedButton.styleFrom(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8)),
           ),
           child: const Text('연결'),
         ),
       ),
+    );
+  }
+}
+
+// ── 수업 편집 바텀 시트 ─────────────────────────────────────────────────────────
+class _ScheduleEditSheet extends StatefulWidget {
+  final ScheduleEntry? existing;
+  const _ScheduleEditSheet({this.existing});
+
+  @override
+  State<_ScheduleEditSheet> createState() => _ScheduleEditSheetState();
+}
+
+class _ScheduleEditSheetState extends State<_ScheduleEditSheet> {
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _startAddressCtrl;
+  late final TextEditingController _destNameCtrl;
+  late final TextEditingController _destAddressCtrl;
+
+  late int _dayOfWeek;
+  late TimeOfDay _classTime;
+  late String _transportMode;
+
+  static const _days = ['월', '화', '수', '목', '금'];
+  static const _modes = ['BUS', 'SUBWAY', 'WALK'];
+  static const _modeLabels = ['버스', '지하철', '도보'];
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    _titleCtrl = TextEditingController(text: e?.title ?? '');
+    _startAddressCtrl = TextEditingController(text: e?.startAddress ?? '');
+    _destNameCtrl = TextEditingController(text: e?.destinationName ?? '');
+    _destAddressCtrl = TextEditingController(text: e?.destinationAddress ?? '');
+    _dayOfWeek = e?.dayOfWeek ?? 1;
+    _classTime = e?.classTimeOfDay ?? const TimeOfDay(hour: 9, minute: 0);
+    _transportMode = e?.transportMode ?? 'BUS';
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _startAddressCtrl.dispose();
+    _destNameCtrl.dispose();
+    _destAddressCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _valid =>
+      _titleCtrl.text.trim().isNotEmpty &&
+      _destNameCtrl.text.trim().isNotEmpty &&
+      _destAddressCtrl.text.trim().isNotEmpty;
+
+  String get _classTimeStr =>
+      '${_classTime.hour.toString().padLeft(2, '0')}:${_classTime.minute.toString().padLeft(2, '0')}';
+
+  String get _targetArrivalStr {
+    final total = _classTime.hour * 60 + _classTime.minute - 5;
+    final h = (total ~/ 60).clamp(0, 23);
+    final m = (total % 60).clamp(0, 59);
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _save() async {
+    final svc = SettingsService.instance;
+    final entry = ScheduleEntry(
+      scheduleId: widget.existing?.scheduleId ?? '',
+      userId: svc.userModel?.userId ?? '',
+      title: _titleCtrl.text.trim(),
+      dayOfWeek: _dayOfWeek,
+      classTime: _classTimeStr,
+      targetArrivalTime: _targetArrivalStr,
+      startPlaceName: '집',
+      startAddress: _startAddressCtrl.text.trim(),
+      destinationName: _destNameCtrl.text.trim(),
+      destinationAddress: _destAddressCtrl.text.trim(),
+      transportMode: _transportMode,
+      isActive: widget.existing?.isActive ?? true,
+    );
+    await svc.saveSchedule(entry);
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _delete() async {
+    final id = widget.existing?.scheduleId;
+    if (id == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('수업 삭제'),
+        content: Text('"${widget.existing!.title}" 수업을 삭제할까요?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('삭제', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await SettingsService.instance.deleteSchedule(id);
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      minChildSize: 0.5,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 8),
+            Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(width: 16),
+                Text(widget.existing == null ? '수업 추가' : '수업 편집',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                if (widget.existing != null)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: _delete,
+                  ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.all(20),
+                children: [
+                  _field('과목명', _titleCtrl, hint: '예) 자료구조'),
+                  const SizedBox(height: 16),
+                  const Text('요일', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: List.generate(5, (i) {
+                      final d = i + 1;
+                      final sel = _dayOfWeek == d;
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _dayOfWeek = d),
+                          child: Container(
+                            margin: EdgeInsets.only(right: i < 4 ? 6 : 0),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: sel ? Colors.blue : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(_days[i],
+                                  style: TextStyle(
+                                      color: sel ? Colors.white : Colors.black87,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('수업 시작 시간', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () async {
+                      final p = await showTimePicker(context: context, initialTime: _classTime);
+                      if (p != null) setState(() => _classTime = p);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(10)),
+                      child: Row(children: [
+                        const Icon(Icons.access_time, color: Colors.blue, size: 20),
+                        const SizedBox(width: 8),
+                        Text(_classTimeStr,
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('교통수단', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: List.generate(3, (i) {
+                      final sel = _transportMode == _modes[i];
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _transportMode = _modes[i]),
+                          child: Container(
+                            margin: EdgeInsets.only(right: i < 2 ? 8 : 0),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: sel ? Colors.blue : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(_modeLabels[i],
+                                  style: TextStyle(
+                                      color: sel ? Colors.white : Colors.black87,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13)),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                  _field('출발지 주소', _startAddressCtrl, hint: '예) 부산광역시 사상구 학장로 123'),
+                  const SizedBox(height: 16),
+                  _field('강의실 건물명', _destNameCtrl, hint: '예) 공학관'),
+                  const SizedBox(height: 16),
+                  _field('강의실 주소', _destAddressCtrl, hint: '예) 부산광역시 부산진구 시민공원로 73'),
+                  const SizedBox(height: 32),
+                  ElevatedButton(
+                    onPressed: _valid ? _save : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: Text(widget.existing == null ? '추가' : '저장'),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(String label, TextEditingController ctrl, {String hint = ''}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: ctrl,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: Colors.grey[100],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          ),
+        ),
+      ],
     );
   }
 }
