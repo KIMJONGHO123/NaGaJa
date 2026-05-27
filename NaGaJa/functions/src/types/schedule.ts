@@ -10,6 +10,14 @@ export interface Schedule {
   targetArrivalTime: string;
   startPlaceName: string;
   startAddress: string;
+  startLat?: number; // 처음에는 없어도 되는 값
+  startLng?: number; // 처음에는 없어도 되는 값
+  startNx?: number; // 처음에는 없어도 되는 값
+  startNy?: number; // 처음에는 없어도 되는 값
+  endLat?: number; // 처음에는 없어도 되는 값
+  endLng?: number; // 처음에는 없어도 되는 값
+  endNx?: number; // 처음에는 없어도 되는 값
+  endNy?: number; // 처음에는 없어도 되는 값
   destinationName: string;
   destinationAddress: string;
   transportMode: TransportMode;

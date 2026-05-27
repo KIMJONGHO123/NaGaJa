@@ -22,10 +22,10 @@ export const createMockSchedules = async (userId: string) => {
         targetArrivalTime: "08:55",
 
         startPlaceName: "집",
-        startAddress: "부산광역시 ...",
+        startAddress: "부산광역시 해운대구 해운대로 620",
 
         destinationName: "공학관",
-        destinationAddress: "공학관 주소",
+        destinationAddress: "부산광역시 동래구 사직로 45",
 
         transportMode: "BUS",
 
@@ -41,10 +41,10 @@ export const createMockSchedules = async (userId: string) => {
         targetArrivalTime: "10:25",
 
         startPlaceName: "집",
-        startAddress: "부산광역시 해운대구 ...",
+        startAddress: "부산광역시 연제구 중앙대로 1001",
 
         destinationName: "정보관",
-        destinationAddress: "부산대학교 정보관",
+        destinationAddress: "부산광역시 해운대구 송정해변로 62",
 
         transportMode: "SUBWAY",
 
