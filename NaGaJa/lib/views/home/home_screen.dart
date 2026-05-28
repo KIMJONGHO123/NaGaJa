@@ -264,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _infoItem('출발', departStr, Icons.schedule),
             ],
           ),
-          if (_nextClassTime != null || SettingsService.instance.nextSchedule != null) ...[
+          if (_nextClassTime != null) ...[
             const SizedBox(height: 12),
             _buildPlanRefreshRow(hasPlan),
           ],
