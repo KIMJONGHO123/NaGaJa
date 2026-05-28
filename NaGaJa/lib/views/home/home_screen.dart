@@ -34,10 +34,19 @@ class _HomeScreenState extends State<HomeScreen> {
     return DailyPlanService.instance.planForSchedule(id);
   }
 
-  /// DailyPlan이 있으면 실제 예측 이동시간, 없으면 기본값
-  int get _travelMinutes =>
-      _activePlan?.predictedTravelMinutes ??
-      SettingsService.instance.defaultTravelMinutes;
+  /// DailyPlan이 있고 오늘 날짜 플랜이면 예측 이동시간, 아니면 기본값
+  int get _travelMinutes {
+    if (_nextClassTime == null) return SettingsService.instance.defaultTravelMinutes;
+    final plan = _activePlan;
+    if (plan != null) {
+      final ft = plan.finalDepartureTime;
+      final sameDay = ft.year == _nextClassTime!.year &&
+          ft.month == _nextClassTime!.month &&
+          ft.day == _nextClassTime!.day;
+      if (sameDay) return plan.predictedTravelMinutes;
+    }
+    return SettingsService.instance.defaultTravelMinutes;
+  }
 
   @override
   void initState() {
@@ -98,9 +107,9 @@ class _HomeScreenState extends State<HomeScreen> {
   _Status get _status {
     if (_nextClassTime == null) return _Status.free;
     final remaining = _nextClassTime!.difference(_now).inMinutes;
-    final needed = _prepMinutes + _travelMinutes;
-    if (remaining > needed + 10) return _Status.free;
-    if (remaining >= _travelMinutes) return _Status.goNow;
+    // 게이지와 동일한 경계: 나가자 = travelMin+10 ~ travelMin+5, 지각 = travelMin+5 미만
+    if (remaining > _travelMinutes + 10) return _Status.free;
+    if (remaining > _travelMinutes + 5) return _Status.goNow;
     return _Status.lateRisk;
   }
 
