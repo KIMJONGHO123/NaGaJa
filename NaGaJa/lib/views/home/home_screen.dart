@@ -213,7 +213,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildInfoCard() {
-    final departStr = _shouldDepartAt != null ? _fmt(_shouldDepartAt!) : '--:--';
+    // 오늘 수업이 없으면 출발 시각 표시 안 함
+    final departStr = (_nextClassTime != null && _shouldDepartAt != null)
+        ? _fmt(_shouldDepartAt!)
+        : '--:--';
     final hasPlan = _activePlan != null;
     return Container(
       padding: const EdgeInsets.all(20),
