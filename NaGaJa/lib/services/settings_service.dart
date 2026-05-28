@@ -238,6 +238,24 @@ class SettingsService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── 도착 기록 ────────────────────────────────────────────────────────────────
+  Future<void> saveArrivalLog({
+    required DateTime arrivedAt,
+    required String? scheduleId,
+  }) async {
+    if (_userDoc == null) return;
+    try {
+      await _userDoc!.collection('arrivalLogs').add({
+        'arrivedAt': Timestamp.fromDate(arrivedAt),
+        'scheduleId': scheduleId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      // ignore: avoid_print
+      print('[ArrivalLog] error: $e');
+    }
+  }
+
   // ── 준비 시간 기록 ───────────────────────────────────────────────────────────
   Future<void> savePrepLog({
     required DateTime startedAt,

@@ -146,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ft.day == _nextClassTime!.day;
       if (sameDay) return ft;
     }
-    return _nextClassTime!.subtract(Duration(minutes: _prepMinutes + _travelMinutes));
+    return _nextClassTime!.subtract(Duration(minutes: _travelMinutes + 5));
   }
 
   DateTime? get _taxiDeadline =>
@@ -405,9 +405,15 @@ class _HomeScreenState extends State<HomeScreen> {
       return SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('도착이 기록되었습니다. 수고하셨어요!')),
-          ),
+          onPressed: () {
+            SettingsService.instance.saveArrivalLog(
+              arrivedAt: DateTime.now(),
+              scheduleId: SettingsService.instance.todayNextSchedule?.scheduleId,
+            );
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('도착이 기록되었습니다. 수고하셨어요!')),
+            );
+          },
           icon: const Icon(Icons.school),
           label: const Text('도착 확인'),
           style: ElevatedButton.styleFrom(

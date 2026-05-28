@@ -376,9 +376,11 @@ class _ScheduleEditSheetState extends State<_ScheduleEditSheet> {
       '${_classTime.hour.toString().padLeft(2, '0')}:${_classTime.minute.toString().padLeft(2, '0')}';
 
   String get _targetArrivalStr {
-    final total = _classTime.hour * 60 + _classTime.minute - 5;
-    final h = (total ~/ 60).clamp(0, 23);
-    final m = (total % 60).clamp(0, 59);
+    final totalMin = _classTime.hour * 60 + _classTime.minute - 5;
+    // 자정 이전(음수)으로 넘어가는 경우 처리
+    final adjusted = totalMin < 0 ? totalMin + 24 * 60 : totalMin;
+    final h = (adjusted ~/ 60) % 24;
+    final m = adjusted % 60;
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
   }
 

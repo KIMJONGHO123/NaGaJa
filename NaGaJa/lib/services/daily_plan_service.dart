@@ -138,7 +138,8 @@ class DailyPlanService {
 
     try {
       final today = '${classDate.year}-${classDate.month.toString().padLeft(2, '0')}-${classDate.day.toString().padLeft(2, '0')}';
-      final now = DateTime.now();
+      // KST 기준 현재 시각 (loadTodayPlans와 동일한 기준)
+      final now = DateTime.now().toUtc().add(const Duration(hours: 9));
 
       final parts = schedule.targetArrivalTime.split(':');
       if (parts.length != 2) return;
