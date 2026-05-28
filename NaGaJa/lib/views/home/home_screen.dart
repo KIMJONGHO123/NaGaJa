@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../services/daily_plan_service.dart';
 import '../../services/settings_service.dart';
 import '../late_response/late_response_screen.dart';
 import 'circular_gauge.dart';
@@ -18,13 +19,25 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime _now = DateTime.now();
 
   DateTime? _nextClassTime;
-  final int _travelMinutes = 20; // 추후 Map API로 대체
-
   bool _departed = false;
   bool _loading = true;
+  bool _planRefreshing = false;
   DateTime? _prepStartedAt;
 
   int get _prepMinutes => SettingsService.instance.prepMinutes;
+
+  DailyPlanModel? get _activePlan {
+    final id = (SettingsService.instance.todayNextSchedule ??
+            SettingsService.instance.nextSchedule)
+        ?.scheduleId;
+    if (id == null || id.isEmpty) return null;
+    return DailyPlanService.instance.planForSchedule(id);
+  }
+
+  /// DailyPlan이 있으면 실제 예측 이동시간, 없으면 기본값
+  int get _travelMinutes =>
+      _activePlan?.predictedTravelMinutes ??
+      SettingsService.instance.defaultTravelMinutes;
 
   @override
   void initState() {
@@ -39,6 +52,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initSettings() async {
     await SettingsService.instance.load();
     _recomputeNextClass();
+    // 이미 Firestore에 저장된 오늘 plan 로드
+    await DailyPlanService.instance.loadTodayPlans();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -47,22 +62,27 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  // 오늘 이후 가장 가까운 수업 탐색
+  Future<void> _refreshPlan() async {
+    if (_planRefreshing) return;
+    setState(() => _planRefreshing = true);
+    await DailyPlanService.instance.generateDailyPlan(
+      scheduleId: (SettingsService.instance.todayNextSchedule ??
+              SettingsService.instance.nextSchedule)
+          ?.scheduleId,
+    );
+    if (mounted) setState(() => _planRefreshing = false);
+  }
+
   void _recomputeNextClass() {
-    final next = SettingsService.instance.nextSchedule;
+    final next = SettingsService.instance.todayNextSchedule;
     if (next == null) { _nextClassTime = null; return; }
 
     final now = DateTime.now();
-    for (int i = 0; i < 7; i++) {
-      final date = now.add(Duration(days: i));
-      if (date.weekday != next.dayOfWeek) continue;
-      final parts = next.classTime.split(':');
-      if (parts.length != 2) continue;
-      final classTime = DateTime(date.year, date.month, date.day,
-          int.parse(parts[0]), int.parse(parts[1]));
-      if (classTime.isAfter(now)) { _nextClassTime = classTime; return; }
-    }
-    _nextClassTime = null;
+    final parts = next.classTime.split(':');
+    if (parts.length != 2) { _nextClassTime = null; return; }
+    final classTime = DateTime(now.year, now.month, now.day,
+        int.parse(parts[0]), int.parse(parts[1]));
+    _nextClassTime = classTime.isAfter(now) ? classTime : null;
   }
 
   @override
@@ -81,25 +101,47 @@ class _HomeScreenState extends State<HomeScreen> {
     return _Status.lateRisk;
   }
 
-  Color get _statusColor => switch (_status) {
-        _Status.free     => const Color(0xFF4CAF50),
-        _Status.goNow    => const Color(0xFFFF9800),
-        _Status.lateRisk => const Color(0xFFF44336),
+  Color get _statusColor {
+    // DailyPlan의 displayColor 우선 사용
+    final plan = _activePlan;
+    if (plan != null) {
+      return switch (plan.displayColor) {
+        'GREEN'  => const Color(0xFF4CAF50),
+        'YELLOW' => const Color(0xFFFF9800),
+        'RED'    => const Color(0xFFF44336),
+        _        => const Color(0xFF4CAF50),
       };
+    }
+    return switch (_status) {
+      _Status.free     => const Color(0xFF4CAF50),
+      _Status.goNow    => const Color(0xFFFF9800),
+      _Status.lateRisk => const Color(0xFFF44336),
+    };
+  }
 
   String _fmt(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
+  /// DailyPlan의 finalDepartureTime 우선, 없으면 로컬 계산
   DateTime? get _shouldDepartAt =>
+      _activePlan?.finalDepartureTime ??
       _nextClassTime?.subtract(Duration(minutes: _prepMinutes + _travelMinutes));
 
   DateTime? get _taxiDeadline =>
       _nextClassTime?.subtract(Duration(minutes: (_travelMinutes * 0.7).round()));
 
-  String? get _nextCourseName {
-    final next = SettingsService.instance.nextSchedule;
-    if (next == null || next.title.isEmpty) return null;
-    return next.title;
+  String _buildClockSubtitle() {
+    if (_nextClassTime != null) {
+      final next = SettingsService.instance.todayNextSchedule;
+      final name = (next?.title.isNotEmpty ?? false) ? ' · ${next!.title}' : '';
+      return '다음 수업 ${_fmt(_nextClassTime!)}$name';
+    }
+    final upcoming = SettingsService.instance.nextSchedule;
+    if (upcoming == null) return '예정된 수업 없음';
+    const dayNames = ['', '월', '화', '수', '목', '금', '토', '일'];
+    final day = dayNames[upcoming.dayOfWeek];
+    final name = upcoming.title.isNotEmpty ? ' · ${upcoming.title}' : '';
+    return '다음 수업 $day ${upcoming.classTime}$name';
   }
 
   @override
@@ -122,6 +164,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 now: _now,
                 prepMinutes: _prepMinutes,
                 travelMinutes: _travelMinutes,
+                upcomingSchedule: _nextClassTime == null
+                    ? SettingsService.instance.nextSchedule
+                    : null,
               ),
               const SizedBox(height: 16),
               _buildInfoCard(),
@@ -160,9 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          _nextClassTime != null
-              ? '다음 수업 ${_fmt(_nextClassTime!)}${_nextCourseName != null ? ' · $_nextCourseName' : ''}'
-              : '예정된 수업 없음',
+          _buildClockSubtitle(),
           style: TextStyle(fontSize: 14, color: Colors.grey[600]),
         ),
       ],
@@ -171,6 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildInfoCard() {
     final departStr = _shouldDepartAt != null ? _fmt(_shouldDepartAt!) : '--:--';
+    final hasPlan = _activePlan != null;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -183,14 +227,54 @@ class _HomeScreenState extends State<HomeScreen> {
               offset: const Offset(0, 2))
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Column(
         children: [
-          _infoItem('준비', '$_prepMinutes분', Icons.coffee_outlined),
-          _vertDivider(),
-          _infoItem('이동', '$_travelMinutes분', Icons.directions_bus_outlined),
-          _vertDivider(),
-          _infoItem('출발', departStr, Icons.schedule),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _infoItem('준비', '$_prepMinutes분', Icons.coffee_outlined),
+              _vertDivider(),
+              _infoItem('이동', '$_travelMinutes분', Icons.directions_bus_outlined),
+              _vertDivider(),
+              _infoItem('출발', departStr, Icons.schedule),
+            ],
+          ),
+          if (_nextClassTime != null || SettingsService.instance.nextSchedule != null) ...[
+            const SizedBox(height: 12),
+            _buildPlanRefreshRow(hasPlan),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanRefreshRow(bool hasPlan) {
+    return GestureDetector(
+      onTap: _planRefreshing ? null : _refreshPlan,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (_planRefreshing)
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.5),
+            )
+          else
+            Icon(
+              hasPlan ? Icons.cloud_done_outlined : Icons.cloud_sync_outlined,
+              size: 14,
+              color: Colors.grey[400],
+            ),
+          const SizedBox(width: 6),
+          Text(
+            _planRefreshing
+                ? '경로 계산 중...'
+                : hasPlan
+                    ? 'AI 예측 적용됨 · 새로고침'
+                    : '실시간 경로 계산하기',
+            style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+          ),
         ],
       ),
     );
@@ -342,7 +426,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 SettingsService.instance.savePrepLog(
                   startedAt: _prepStartedAt!,
                   departedAt: departedAt,
-                  scheduleId: SettingsService.instance.nextSchedule?.scheduleId,
+                  scheduleId: SettingsService.instance.todayNextSchedule?.scheduleId,
                 );
               }
               setState(() => _departed = true);

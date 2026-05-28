@@ -67,8 +67,12 @@ class ScheduleEntry {
   final String targetArrivalTime; // "HH:MM" (예: "08:55")
   final String startPlaceName;    // 예: "집"
   final String startAddress;
+  final double? startLat;
+  final double? startLng;
   final String destinationName;   // 예: "공학관"
   final String destinationAddress;
+  final double? endLat;   // 백엔드 Schedule 타입 필드명과 일치
+  final double? endLng;
   final String transportMode; // "BUS" | "SUBWAY" | "WALK"
   final bool isActive;
 
@@ -81,8 +85,12 @@ class ScheduleEntry {
     required this.targetArrivalTime,
     required this.startPlaceName,
     required this.startAddress,
+    this.startLat,
+    this.startLng,
     required this.destinationName,
     required this.destinationAddress,
+    this.endLat,
+    this.endLng,
     required this.transportMode,
     required this.isActive,
   });
@@ -97,26 +105,37 @@ class ScheduleEntry {
         targetArrivalTime: (data['targetArrivalTime'] as String?) ?? '08:55',
         startPlaceName: (data['startPlaceName'] as String?) ?? '집',
         startAddress: (data['startAddress'] as String?) ?? '',
+        startLat: (data['startLat'] as num?)?.toDouble(),
+        startLng: (data['startLng'] as num?)?.toDouble(),
         destinationName: (data['destinationName'] as String?) ?? '',
         destinationAddress: (data['destinationAddress'] as String?) ?? '',
+        endLat: (data['endLat'] as num?)?.toDouble(),
+        endLng: (data['endLng'] as num?)?.toDouble(),
         transportMode: (data['transportMode'] as String?) ?? 'BUS',
         isActive: (data['isActive'] as bool?) ?? true,
       );
 
-  Map<String, dynamic> toMap() => {
-        'scheduleId': scheduleId,
-        'userId': userId,
-        'title': title,
-        'dayOfWeek': dayOfWeek,
-        'classTime': classTime,
-        'targetArrivalTime': targetArrivalTime,
-        'startPlaceName': startPlaceName,
-        'startAddress': startAddress,
-        'destinationName': destinationName,
-        'destinationAddress': destinationAddress,
-        'transportMode': transportMode,
-        'isActive': isActive,
-      };
+  Map<String, dynamic> toMap() {
+    final m = <String, dynamic>{
+      'scheduleId': scheduleId,
+      'userId': userId,
+      'title': title,
+      'dayOfWeek': dayOfWeek,
+      'classTime': classTime,
+      'targetArrivalTime': targetArrivalTime,
+      'startPlaceName': startPlaceName,
+      'startAddress': startAddress,
+      'destinationName': destinationName,
+      'destinationAddress': destinationAddress,
+      'transportMode': transportMode,
+      'isActive': isActive,
+    };
+    if (startLat != null) m['startLat'] = startLat;
+    if (startLng != null) m['startLng'] = startLng;
+    if (endLat != null) m['endLat'] = endLat;
+    if (endLng != null) m['endLng'] = endLng;
+    return m;
+  }
 
   /// "HH:MM" 문자열 → TimeOfDay
   TimeOfDay? get classTimeOfDay {

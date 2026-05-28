@@ -66,13 +66,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           isActive: true,
         )).toList();
 
-    await svc.completeOnboarding(
-      prepMinutes: _prepMinutes,
-      defaultTravelMinutes: _defaultTravelMinutes,
-      homeWifiSsids: [],
-      schoolWifiSsids: [],
-      newSchedules: newSchedules,
-    );
+    try {
+      await svc.completeOnboarding(
+        prepMinutes: _prepMinutes,
+        defaultTravelMinutes: _defaultTravelMinutes,
+        homeWifiSsids: [],
+        schoolWifiSsids: [],
+        newSchedules: newSchedules,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('저장 중 오류: $e')),
+        );
+      }
+    }
     // SettingsService.notifyListeners() → _UserRouter가 MainShell로 전환
   }
 

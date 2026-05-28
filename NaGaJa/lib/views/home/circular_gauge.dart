@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../models/user_model.dart';
 
 class CircularGauge extends StatelessWidget {
   final DateTime? classTime;
   final DateTime now;
   final int prepMinutes;
   final int travelMinutes;
+  final ScheduleEntry? upcomingSchedule;
 
   const CircularGauge({
     super.key,
@@ -13,6 +15,7 @@ class CircularGauge extends StatelessWidget {
     required this.now,
     required this.prepMinutes,
     required this.travelMinutes,
+    this.upcomingSchedule,
   });
 
   static const double _size = 300;
@@ -30,18 +33,57 @@ class CircularGauge extends StatelessWidget {
       return SizedBox(
         width: _size,
         height: _size,
-        child: Center(
-          child: Text('예정된 수업 없음',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500])),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              size: const Size(_size, _size),
+              painter: _RestRingPainter(),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (upcomingSchedule != null) ...[
+                  Text('다음 수업',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+                  const SizedBox(height: 8),
+                  Text(
+                    upcomingSchedule!.classTime,
+                    style: const TextStyle(
+                      fontSize: 44,
+                      fontWeight: FontWeight.w200,
+                      letterSpacing: 4,
+                      color: Color(0xFF9E9E9E),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    () {
+                      const d = ['', '월', '화', '수', '목', '금', '토', '일'];
+                      final day = d[upcomingSchedule!.dayOfWeek];
+                      final name = upcomingSchedule!.title.isNotEmpty
+                          ? ' · ${upcomingSchedule!.title}' : '';
+                      return '$day요일$name';
+                    }(),
+                    style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  ),
+                ] else
+                  Text('예정된 수업 없음',
+                      style: TextStyle(fontSize: 16, color: Colors.grey[400])),
+              ],
+            ),
+          ],
         ),
       );
     }
 
-    final goNowBoundaryMin = prepMinutes + travelMinutes + 10;
-    final lateMin = travelMinutes;
+    // 나가자 zone = finalDepartureTime 5분 전 ~ finalDepartureTime
+    // finalDepartureTime = classTime - travelMinutes - 5 (targetArrivalTime - travelMinutes)
+    final goNowBoundaryMin = travelMinutes + 10; // 나가자 시작 (finalDepartureTime - 5)
+    final lateMin = travelMinutes + 5;           // 나가자 끝 = finalDepartureTime
     final windowMin = goNowBoundaryMin * 2.0;
     final freeMin = windowMin - goNowBoundaryMin;
-    final goNowMin = goNowBoundaryMin - lateMin;
+    final goNowMin = goNowBoundaryMin - lateMin; // = 5
 
     final remaining = classTime!.difference(now);
     final remainingMin = remaining.inSeconds / 60.0;
@@ -52,9 +94,8 @@ class CircularGauge extends StatelessWidget {
     final lateAngle = lateMin / windowMin * 2 * math.pi;
 
     final goNowBoundaryTime = classTime!.subtract(Duration(minutes: goNowBoundaryMin));
-    final lateBoundaryTime = classTime!.subtract(Duration(minutes: lateMin));
-    final shouldDepartAt =
-        classTime!.subtract(Duration(minutes: prepMinutes + travelMinutes));
+    final lateBoundaryTime = classTime!.subtract(Duration(minutes: lateMin)); // finalDepartureTime
+    final shouldDepartAt = classTime!.subtract(Duration(minutes: travelMinutes + 5)); // finalDepartureTime
 
     final bool isLate = remainingMin < lateMin;
     final bool isGoNow = !isLate && remainingMin <= goNowBoundaryMin;
@@ -262,4 +303,25 @@ class _GaugePainter extends CustomPainter {
       goNowAngle != old.goNowAngle ||
       lateAngle != old.lateAngle ||
       dotProgress != old.dotProgress;
+}
+
+class _RestRingPainter extends CustomPainter {
+  static const double _r = CircularGauge._arcRadius;
+  static const double _stroke = CircularGauge._stroke;
+  static const Offset _c = CircularGauge._center;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawCircle(
+      _c,
+      _r,
+      Paint()
+        ..color = const Color(0xFFEEEEEE)
+        ..strokeWidth = _stroke
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RestRingPainter old) => false;
 }

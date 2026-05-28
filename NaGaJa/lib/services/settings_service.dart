@@ -23,7 +23,21 @@ class SettingsService extends ChangeNotifier {
   List<ScheduleEntry> schedulesForDay(int dayOfWeek) =>
       schedules.where((s) => s.dayOfWeek == dayOfWeek && s.isActive).toList();
 
-  /// 오늘 이후 가장 가까운 수업의 ScheduleEntry
+  /// 오늘 남은 수업 중 가장 가까운 ScheduleEntry (게이지·카운트다운용)
+  ScheduleEntry? get todayNextSchedule {
+    final now = DateTime.now();
+    final daySchedules = schedulesForDay(now.weekday);
+    for (final s in daySchedules..sort((a, b) => a.classTime.compareTo(b.classTime))) {
+      final parts = s.classTime.split(':');
+      if (parts.length != 2) continue;
+      final classTime = DateTime(now.year, now.month, now.day,
+          int.parse(parts[0]), int.parse(parts[1]));
+      if (classTime.isAfter(now)) return s;
+    }
+    return null;
+  }
+
+  /// 이번 주 내 가장 가까운 수업 (다음 수업 안내용, 최대 7일)
   ScheduleEntry? get nextSchedule {
     final now = DateTime.now();
     for (int i = 0; i < 7; i++) {
@@ -61,8 +75,9 @@ class SettingsService extends ChangeNotifier {
         final snap = await _userDoc!.get();
         if (snap.exists) {
           userModel = UserModel.fromMap(snap.data() as Map<String, dynamic>);
+          _syncAuthInfo(); // 인증 정보 동기화 (빈 name/email/userId 보정)
           await _loadSchedulesFromFirestore();
-          await _saveLocal();
+          await _saveAll(); // 구버전 필드 자동 삭제 + 저장
           notifyListeners();
           return;
         }
@@ -71,6 +86,23 @@ class SettingsService extends ChangeNotifier {
 
     await _loadLocal();
     notifyListeners();
+  }
+
+  /// Firebase Auth 정보를 userModel에 동기화 (auth 정보가 더 최신이면 덮어씀)
+  void _syncAuthInfo() {
+    if (_user == null || userModel == null) return;
+    final uid = _user!.uid;
+    final name = _user!.displayName ?? '';
+    final email = _user!.email ?? '';
+    userModel = UserModel(
+      userId: uid.isNotEmpty ? uid : userModel!.userId,
+      name: name.isNotEmpty ? name : userModel!.name,
+      email: email.isNotEmpty ? email : userModel!.email,
+      prepMinutes: userModel!.prepMinutes,
+      defaultTravelMinutes: userModel!.defaultTravelMinutes,
+      homeWifiSsids: userModel!.homeWifiSsids,
+      schoolWifiSsids: userModel!.schoolWifiSsids,
+    );
   }
 
   // ── 로그인 후 재동기화 ───────────────────────────────────────────────────────
@@ -83,9 +115,10 @@ class SettingsService extends ChangeNotifier {
   // ── 최초 로그인: users 문서 생성 ─────────────────────────────────────────────
   Future<void> createNewUser() async {
     if (_userDoc == null || _user == null) return;
+    try { await _user!.reload(); } catch (_) {} // 최신 auth 정보 강제 갱신
     final now = FieldValue.serverTimestamp();
     final model = UserModel(
-      userId: _uid!,
+      userId: _uid ?? '',
       name: _user!.displayName ?? '',
       email: _user!.email ?? '',
       prepMinutes: 30,
@@ -124,8 +157,30 @@ class SettingsService extends ChangeNotifier {
       homeWifiSsids: homeWifiSsids,
       schoolWifiSsids: schoolWifiSsids,
     );
-    schedules = newSchedules;
-    await _saveAll();
+    schedules = [];
+    await _saveAll(); // users 문서 저장
+
+    // schedules subcollection에 각각 저장 (실패 시 임시 ID로 메모리에라도 유지)
+    for (final entry in newSchedules) {
+      if (_schedulesCol != null) {
+        try {
+          final ref = _schedulesCol!.doc(); // 먼저 ID 확보
+          final now = FieldValue.serverTimestamp();
+          final data = {
+            ...entry.toMap(),
+            'scheduleId': ref.id, // 실제 문서 ID로 세팅
+            'createdAt': now,
+            'updatedAt': now,
+          };
+          await ref.set(data);
+          schedules.add(ScheduleEntry.fromMap(ref.id, {...entry.toMap(), 'scheduleId': ref.id}));
+          continue;
+        } catch (_) {}
+      }
+      // Firestore 실패 시 메모리에만 저장 (앱은 계속 진행)
+      schedules.add(entry);
+    }
+
     notifyListeners();
   }
 
@@ -151,13 +206,20 @@ class SettingsService extends ChangeNotifier {
     if (_schedulesCol == null) return;
     try {
       final now = FieldValue.serverTimestamp();
-      final data = {...entry.toMap(), 'updatedAt': now};
       if (entry.scheduleId.isEmpty) {
-        final ref = await _schedulesCol!.add({...data, 'createdAt': now});
+        final ref = _schedulesCol!.doc(); // 먼저 ID 확보
+        final data = {
+          ...entry.toMap(),
+          'scheduleId': ref.id,
+          'createdAt': now,
+          'updatedAt': now,
+        };
+        await ref.set(data);
         final newEntry = ScheduleEntry.fromMap(ref.id, {...entry.toMap(), 'scheduleId': ref.id});
         schedules.removeWhere((s) => s.scheduleId == ref.id);
         schedules.add(newEntry);
       } else {
+        final data = {...entry.toMap(), 'updatedAt': now};
         await _schedulesCol!.doc(entry.scheduleId).set(data, SetOptions(merge: true));
         schedules.removeWhere((s) => s.scheduleId == entry.scheduleId);
         schedules.add(entry);
@@ -201,9 +263,15 @@ class SettingsService extends ChangeNotifier {
     if (_schedulesCol == null) return;
     try {
       final snap = await _schedulesCol!.get();
-      schedules = snap.docs
-          .map((d) => ScheduleEntry.fromMap(d.id, d.data() as Map<String, dynamic>))
-          .toList();
+      schedules = [];
+      for (final d in snap.docs) {
+        final data = d.data() as Map<String, dynamic>;
+        if ((data['scheduleId'] as String? ?? '').isEmpty) {
+          await _schedulesCol!.doc(d.id).update({'scheduleId': d.id});
+          data['scheduleId'] = d.id;
+        }
+        schedules.add(ScheduleEntry.fromMap(d.id, data));
+      }
     } catch (_) {}
   }
 
@@ -213,7 +281,21 @@ class SettingsService extends ChangeNotifier {
     if (_userDoc == null || userModel == null) return;
     try {
       await _userDoc!.set(
-        {...userModel!.toMap(), 'updatedAt': FieldValue.serverTimestamp()},
+        {
+          ...userModel!.toMap(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          // 구버전 snake_case 필드 자동 삭제
+          'homeAddress': FieldValue.delete(),
+          'schoolAddress': FieldValue.delete(),
+          'transport': FieldValue.delete(),
+          'isOnboardingComplete': FieldValue.delete(),
+          'schedule_1': FieldValue.delete(),
+          'schedule_2': FieldValue.delete(),
+          'schedule_3': FieldValue.delete(),
+          'schedule_4': FieldValue.delete(),
+          'schedule_5': FieldValue.delete(),
+          'courseName': FieldValue.delete(),
+        },
         SetOptions(merge: true),
       );
     } catch (_) {}

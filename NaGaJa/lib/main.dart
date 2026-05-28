@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
+import 'services/daily_plan_service.dart';
 import 'services/settings_service.dart';
 import 'views/auth/login_screen.dart';
 import 'views/main_shell.dart';
@@ -86,6 +87,11 @@ class _UserRouterState extends State<_UserRouter> {
       await svc.createNewUser();
     } else {
       await svc.reloadFromFirestore();
+    }
+
+    // 스케줄이 있으면 오늘의 dailyPlan 생성 (백그라운드)
+    if (svc.schedules.isNotEmpty) {
+      DailyPlanService.instance.generateDailyPlan().ignore();
     }
 
     if (mounted) setState(() => _checking = false);
