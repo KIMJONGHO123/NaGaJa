@@ -111,7 +111,9 @@ class DailyPlanService {
     final svc = SettingsService.instance;
 
     ScheduleEntry? schedule;
-    DateTime classDate = DateTime.now();
+    // KST 기준 날짜 사용 (loadTodayPlans와 동일한 기준)
+    final kstNow = DateTime.now().toUtc().add(const Duration(hours: 9));
+    DateTime classDate = kstNow;
 
     if (scheduleId != null) {
       schedule = svc.schedules.where((s) => s.scheduleId == scheduleId).firstOrNull;
@@ -123,9 +125,8 @@ class DailyPlanService {
         final next = svc.nextSchedule;
         if (next != null) {
           schedule = next;
-          final now = DateTime.now();
           for (int i = 1; i <= 7; i++) {
-            final date = now.add(Duration(days: i));
+            final date = kstNow.add(Duration(days: i));
             if (date.weekday == next.dayOfWeek) {
               classDate = date;
               break;

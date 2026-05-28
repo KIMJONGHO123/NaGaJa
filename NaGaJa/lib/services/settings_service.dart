@@ -202,12 +202,12 @@ class SettingsService extends ChangeNotifier {
   }
 
   // ── 스케줄 추가/수정 ─────────────────────────────────────────────────────────
-  Future<void> saveSchedule(ScheduleEntry entry) async {
-    if (_schedulesCol == null) return;
+  Future<bool> saveSchedule(ScheduleEntry entry) async {
+    if (_schedulesCol == null) return false;
     try {
       final now = FieldValue.serverTimestamp();
       if (entry.scheduleId.isEmpty) {
-        final ref = _schedulesCol!.doc(); // 먼저 ID 확보
+        final ref = _schedulesCol!.doc();
         final data = {
           ...entry.toMap(),
           'scheduleId': ref.id,
@@ -225,7 +225,12 @@ class SettingsService extends ChangeNotifier {
         schedules.add(entry);
       }
       notifyListeners();
-    } catch (_) {}
+      return true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('[SettingsService] saveSchedule error: $e');
+      return false;
+    }
   }
 
   // ── 스케줄 삭제 ──────────────────────────────────────────────────────────────

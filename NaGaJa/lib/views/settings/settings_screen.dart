@@ -412,7 +412,15 @@ class _ScheduleEditSheetState extends State<_ScheduleEditSheet> {
       transportMode: _transportMode,
       isActive: widget.existing?.isActive ?? true,
     );
-    await svc.saveSchedule(entry);
+    final ok = await svc.saveSchedule(entry);
+    if (!ok) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('저장 중 오류가 발생했습니다. 다시 시도해주세요.')),
+        );
+      }
+      return;
+    }
     DailyPlanService.instance.generateDailyPlan(
       scheduleId: entry.scheduleId.isNotEmpty ? entry.scheduleId : null,
     );
