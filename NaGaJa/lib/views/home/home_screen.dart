@@ -70,7 +70,10 @@ class _HomeScreenState extends State<HomeScreen> {
               SettingsService.instance.nextSchedule)
           ?.scheduleId,
     );
-    if (mounted) setState(() => _planRefreshing = false);
+    if (mounted) {
+      _recomputeNextClass();
+      setState(() => _planRefreshing = false);
+    }
   }
 
   void _recomputeNextClass() {
@@ -123,9 +126,19 @@ class _HomeScreenState extends State<HomeScreen> {
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
   /// DailyPlan의 finalDepartureTime 우선, 없으면 로컬 계산
-  DateTime? get _shouldDepartAt =>
-      _activePlan?.finalDepartureTime ??
-      _nextClassTime?.subtract(Duration(minutes: _prepMinutes + _travelMinutes));
+  /// 단, 플랜 날짜가 오늘 수업 날짜와 같을 때만 사용 (오래된 플랜 방지)
+  DateTime? get _shouldDepartAt {
+    if (_nextClassTime == null) return null;
+    final plan = _activePlan;
+    if (plan != null) {
+      final ft = plan.finalDepartureTime;
+      final sameDay = ft.year == _nextClassTime!.year &&
+          ft.month == _nextClassTime!.month &&
+          ft.day == _nextClassTime!.day;
+      if (sameDay) return ft;
+    }
+    return _nextClassTime!.subtract(Duration(minutes: _prepMinutes + _travelMinutes));
+  }
 
   DateTime? get _taxiDeadline =>
       _nextClassTime?.subtract(Duration(minutes: (_travelMinutes * 0.7).round()));
