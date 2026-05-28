@@ -130,10 +130,7 @@ class ScheduleEntry {
       'transportMode': transportMode,
       'isActive': isActive,
     };
-    if (startLat != null) m['startLat'] = startLat;
-    if (startLng != null) m['startLng'] = startLng;
-    if (endLat != null) m['endLat'] = endLat;
-    if (endLng != null) m['endLng'] = endLng;
+    // 좌표(Lat/Lng, Nx/Ny)는 백엔드가 주소 기반으로 계산해서 저장 → Flutter에서 쓰지 않음
     return m;
   }
 
