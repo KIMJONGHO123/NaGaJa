@@ -58,8 +58,59 @@ export interface CalculateDailyPlanResult {
   plan: DailyPlan;
 }
 
+interface ResolveDailyPlanUpsertTargetInput {
+  dailyPlansRef: FirebaseFirestore.CollectionReference;
+  planDate: string;
+  scheduleId: string;
+  nowTs: Timestamp;
+}
+
+interface DailyPlanUpsertTarget {
+  ref: FirebaseFirestore.DocumentReference;
+  dailyPlanId: string;
+  createdAt: Timestamp;
+  mode: "create" | "update";
+}
+
 const isBusTransportMode = (mode: string): boolean =>
   mode.toUpperCase() === "BUS";
+
+export const getDailyPlanDocumentId = (
+  planDate: string,
+  scheduleId: string,
+): string => `${planDate}_${scheduleId}`;
+
+export const resolveDailyPlanUpsertTarget = async (
+  input: ResolveDailyPlanUpsertTargetInput,
+): Promise<DailyPlanUpsertTarget> => {
+  const existing = await input.dailyPlansRef
+    .where("planDate", "==", input.planDate)
+    .where("scheduleId", "==", input.scheduleId)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) {
+    const existingDoc = existing.docs[0];
+    return {
+      ref: existingDoc.ref,
+      dailyPlanId: existingDoc.id,
+      createdAt: (existingDoc.get("createdAt") as Timestamp) ?? input.nowTs,
+      mode: "update",
+    };
+  }
+
+  const dailyPlanId = getDailyPlanDocumentId(
+    input.planDate,
+    input.scheduleId,
+  );
+
+  return {
+    ref: input.dailyPlansRef.doc(dailyPlanId),
+    dailyPlanId,
+    createdAt: input.nowTs,
+    mode: "create",
+  };
+};
 
 /**
  * 규칙 문서 §78~ 흐름: 초기 시각 → TMAP 다경로 → 경로별 혼잡/날씨 → 최단 경로 → DailyPlan 저장
@@ -398,6 +449,10 @@ export const calculateAndUpsertDailyPlan = async (
   const displayColor = toDisplayColor(remainingMarginMinutes);
 
   const nowTs = Timestamp.now();
+  const dailyPlansRef = db
+    .collection("users")
+    .doc(input.userId)
+    .collection("dailyPlans");
   const dailyPlan: Omit<DailyPlan, "createdAt"> & { createdAt?: Timestamp } = {
     scheduleId: input.scheduleId,
     planDate: input.planDate,
@@ -431,41 +486,20 @@ export const calculateAndUpsertDailyPlan = async (
     updatedAt: nowTs,
   };
 
-  const existing = await db
-    .collection("users")
-    .doc(input.userId)
-    .collection("dailyPlans")
-    .where("planDate", "==", input.planDate)
-    .where("scheduleId", "==", input.scheduleId)
-    .limit(1)
-    .get();
+  const upsertTarget = await resolveDailyPlanUpsertTarget({
+    dailyPlansRef,
+    planDate: input.planDate,
+    scheduleId: input.scheduleId,
+    nowTs,
+  });
+  const { ref, dailyPlanId, createdAt, mode } = upsertTarget;
 
-  let dailyPlanId: string;
-  let createdAt = nowTs;
-  if (existing.empty) {
-    const ref = db
-      .collection("users")
-      .doc(input.userId)
-      .collection("dailyPlans")
-      .doc();
-    dailyPlanId = ref.id;
-    await ref.set({
-      ...dailyPlan,
-      dailyPlanId,
-      createdAt: nowTs,
-    });
-    trace("firestore_upsert", { dailyPlanId, mode: "create" });
-  } else {
-    const ref = existing.docs[0].ref;
-    dailyPlanId = existing.docs[0].id;
-    createdAt = (existing.docs[0].get("createdAt") as Timestamp) ?? nowTs;
-    await ref.set({
-      ...dailyPlan,
-      dailyPlanId,
-      createdAt,
-    });
-    trace("firestore_upsert", { dailyPlanId, mode: "update" });
-  }
+  await ref.set({
+    ...dailyPlan,
+    dailyPlanId,
+    createdAt,
+  });
+  trace("firestore_upsert", { dailyPlanId, mode });
 
   if (selectedRouteNo) {
     console.log(`Daily plan ${dailyPlanId} uses bus route ${selectedRouteNo}`);

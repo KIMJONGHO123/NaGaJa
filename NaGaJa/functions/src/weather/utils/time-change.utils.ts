@@ -1,5 +1,26 @@
 // functions/src/utils/time.util.ts
 
+const getKstTimeParts = (date: Date): { hour: number; minute: number } => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const getPart = (type: "hour" | "minute"): number => {
+    const value = parts.find((part) => part.type === type)?.value;
+    if (!value) {
+      throw new Error(`Failed to format KST ${type}`);
+    }
+    return Number(value);
+  };
+
+  return {
+    hour: getPart("hour"),
+    minute: getPart("minute"),
+  };
+};
+
 /**
  * 혼잡도 데이터 조회용 시간 변환 함수
  * 
@@ -15,8 +36,7 @@
  * 07:58 → 0800
  */
 export function getCongestionTimeSlot(date: Date): string {
-  const hour = date.getHours();
-  const minute = date.getMinutes();
+  const { hour, minute } = getKstTimeParts(date);
 
   let targetHour = hour;
   let targetMinute = 0;
@@ -58,7 +78,7 @@ export function getCongestionTimeSlot(date: Date): string {
  * 발표: 0200, 0500, 0800, 1100, 1400, 1700, 2000, 2300
  */
 export function getWeatherBaseTime(calculationAt: Date): string {
-  const hour = calculationAt.getHours();
+  const { hour } = getKstTimeParts(calculationAt);
   const issuanceHours = [2, 5, 8, 11, 14, 17, 20, 23];
   let picked = 2;
 
@@ -72,8 +92,7 @@ export function getWeatherBaseTime(calculationAt: Date): string {
 }
 
 export function getWeatherFcstTime(date: Date): string {
-  const hour = date.getHours();
-  const minute = date.getMinutes();
+  const { hour, minute } = getKstTimeParts(date);
 
   let targetHour = hour;
 
