@@ -136,3 +136,4 @@ $RECYCLE.BIN/
 *.pid
 tmp/
 temp/
+lib/config/kakao_config.dart
