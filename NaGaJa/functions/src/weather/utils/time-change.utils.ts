@@ -1,5 +1,60 @@
 // functions/src/utils/time.util.ts
 
+const getKstTimeParts = (date: Date): { hour: number; minute: number } => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const getPart = (type: "hour" | "minute"): number => {
+    const value = parts.find((part) => part.type === type)?.value;
+    if (!value) {
+      throw new Error(`Failed to format KST ${type}`);
+    }
+    return Number(value);
+  };
+
+  return {
+    hour: getPart("hour"),
+    minute: getPart("minute"),
+  };
+};
+
+const getKstDateParts = (date: Date): {
+  year: string;
+  month: string;
+  day: string;
+} => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const getPart = (type: "year" | "month" | "day"): string => {
+    const value = parts.find((part) => part.type === type)?.value;
+    if (!value) {
+      throw new Error(`Failed to format KST ${type}`);
+    }
+    return value;
+  };
+
+  return {
+    year: getPart("year"),
+    month: getPart("month"),
+    day: getPart("day"),
+  };
+};
+
+const formatKstBaseDate = (date: Date): string => {
+  const { year, month, day } = getKstDateParts(date);
+  return `${year}${month}${day}`;
+};
+
+const addMinutes = (date: Date, minutes: number): Date =>
+  new Date(date.getTime() + minutes * 60_000);
+
 /**
  * 혼잡도 데이터 조회용 시간 변환 함수
  * 
@@ -15,8 +70,7 @@
  * 07:58 → 0800
  */
 export function getCongestionTimeSlot(date: Date): string {
-  const hour = date.getHours();
-  const minute = date.getMinutes();
+  const { hour, minute } = getKstTimeParts(date);
 
   let targetHour = hour;
   let targetMinute = 0;
@@ -53,33 +107,52 @@ export function getCongestionTimeSlot(date: Date): string {
  * 08:41 → 0900
  * 07:58 → 0800
  */
+
 /**
  * 기상청 단기예보 baseTime — calculationAt 이전 최근 발표 시각
  * 발표: 0200, 0500, 0800, 1100, 1400, 1700, 2000, 2300
  */
 export function getWeatherBaseTime(calculationAt: Date): string {
-  const hour = calculationAt.getHours();
+  return getWeatherBaseDateTime(calculationAt).baseTime;
+}
+
+export function getWeatherBaseDateTime(calculationAt: Date): {
+  baseDate: string;
+  baseTime: string;
+} {
+  const { hour } = getKstTimeParts(calculationAt);
   const issuanceHours = [2, 5, 8, 11, 14, 17, 20, 23];
-  let picked = 2;
+  let picked = 23;
+  let baseDateSource = addMinutes(calculationAt, -3 * 60);
 
   for (const h of issuanceHours) {
     if (hour >= h) {
       picked = h;
+      baseDateSource = calculationAt;
     }
   }
 
-  return `${String(picked).padStart(2, "0")}00`;
+  return {
+    baseDate: formatKstBaseDate(baseDateSource),
+    baseTime: `${String(picked).padStart(2, "0")}00`,
+  };
 }
 
 export function getWeatherFcstTime(date: Date): string {
-  const hour = date.getHours();
-  const minute = date.getMinutes();
+  return getWeatherForecastDateTime(date).fcstTime;
+}
 
-  let targetHour = hour;
+export function getWeatherForecastDateTime(date: Date): {
+  fcstDate: string;
+  fcstTime: string;
+} {
+  const { hour, minute } = getKstTimeParts(date);
 
-  if (minute >= 30) {
-    targetHour = hour + 1;
-  }
+  const targetDate = minute >= 30 ? addMinutes(date, 60 - minute) : date;
+  const targetHour = minute >= 30 ? getKstTimeParts(targetDate).hour : hour;
 
-  return String(targetHour).padStart(2, "0") + "00";
+  return {
+    fcstDate: formatKstBaseDate(targetDate),
+    fcstTime: String(targetHour).padStart(2, "0") + "00",
+  };
 }

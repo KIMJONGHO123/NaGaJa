@@ -46,15 +46,19 @@ export const combinePlanDateAndTime = (planDate: string, time: string): Date => 
   );
 };
 
+// 기준 시간에 지정한 분(minutes)을 더한 새로운 Date 객체를 반환한다.
 export const addMinutes = (date: Date, minutes: number): Date =>
   new Date(date.getTime() + minutes * 60_000);
 
+// 기준 시간에 지정한 분(minutes)을 뺀 새로운 Date 객체를 반환한다.
 export const subtractMinutes = (date: Date, minutes: number): Date =>
   addMinutes(date, -minutes);
 
+// 두 시간 사이의 분(minutes) 차이를 반환한다.
 export const minutesBetween = (later: Date, earlier: Date): number =>
   Math.round((later.getTime() - earlier.getTime()) / 60_000);
 
+// 초(seconds)를 분(minutes)로 변환하고, 1분 이상의 값을 반환한다.
 export const ceilSecondsToMinutes = (seconds: number): number =>
   Math.max(1, Math.ceil(seconds / 60));
 

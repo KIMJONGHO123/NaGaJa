@@ -9,7 +9,9 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test:pipeline": "npm run build && npx firebase emulators:exec --only firestore \"node scripts/test-fullDailyPlanPipeline.mjs\""
+    "test:pipeline": "npm run build && npx firebase emulators:exec --only firestore \"node scripts/test-fullDailyPlanPipeline.mjs\"",
+    "test:dailyPlanUpsert": "npm run build && node scripts/test-dailyPlanUpsertTarget.mjs",
+    "test:alarmLogic": "npm run build && node scripts/test-alarmCalculationLogic.mjs"
   },
   "engines": {
     "node": "20"
