@@ -29,14 +29,12 @@ if (!serviceKey) {
 }
 
 const { getWeather } = await import("../lib/weather/weather.service.js");
-const { formatBaseDate } = await import("../lib/utils/planTime.utils.js");
-const { getWeatherBaseTime } = await import(
+const { getWeatherBaseDateTime } = await import(
   "../lib/weather/utils/time-change.utils.js"
 );
 
 const now = new Date();
-const baseDate = formatBaseDate(now);
-const baseTime = getWeatherBaseTime(now);
+const { baseDate, baseTime } = getWeatherBaseDateTime(now);
 let response;
 try {
   response = await getWeather(baseDate, baseTime, 60, 127, serviceKey);

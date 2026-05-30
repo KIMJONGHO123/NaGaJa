@@ -4,10 +4,12 @@ process.env.TZ = "UTC";
 
 const {
   getCongestionTimeSlot,
+  getWeatherBaseDateTime,
   getWeatherBaseTime,
+  getWeatherForecastDateTime,
   getWeatherFcstTime,
 } = await import("../lib/weather/utils/time-change.utils.js");
-const { combinePlanDateAndTime, formatBaseDate } = await import(
+const { combinePlanDateAndTime } = await import(
   "../lib/utils/planTime.utils.js"
 );
 const { selectWeatherValuesByTime } = await import(
@@ -41,9 +43,18 @@ assert.equal(
   "0500",
   "weather baseTime at 07:00 KST should use latest 05:00 issuance",
 );
+assert.deepEqual(
+  getWeatherBaseDateTime(kstDate("01:30")),
+  { baseDate: "20260528", baseTime: "2300" },
+  "weather base date should roll back before the 02:00 KST issuance",
+);
+assert.deepEqual(
+  getWeatherForecastDateTime(kstDate("23:58")),
+  { fcstDate: "20260530", fcstTime: "0000" },
+  "weather forecast date should roll forward when rounded past midnight",
+);
 
-const fcstDate = formatBaseDate(kstDate("08:41"));
-const fcstTime = getWeatherFcstTime(kstDate("08:41"));
+const { fcstDate, fcstTime } = getWeatherForecastDateTime(kstDate("08:41"));
 const selected = selectWeatherValuesByTime(
   [
     {

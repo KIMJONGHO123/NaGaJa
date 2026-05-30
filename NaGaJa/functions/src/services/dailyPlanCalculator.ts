@@ -6,7 +6,6 @@ import {
   calculateInitialPlanTimes,
   calculateRemainingMarginMinutes,
   ceilSecondsToMinutes,
-  formatBaseDate,
   formatPlanDateKst,
   subtractMinutes,
   toDisplayColor,
@@ -16,12 +15,13 @@ import { getAddress } from "../weather/geocoding.service";
 import { convertToGrid } from "../weather/utils/grid.utils";
 import {
   getCongestionTimeSlot,
-  getWeatherBaseTime,
-  getWeatherFcstTime,
+  getWeatherBaseDateTime,
+  getWeatherForecastDateTime,
 } from "../weather/utils/time-change.utils";
 import { extractWeatherForecastItems } from "../weather/weather.extract";
 import { selectWeatherValuesByTime } from "../weather/weather.filter";
 import { mapWeatherToAdjustMinutes } from "../weather/weather.mapper";
+import type { SelectedWeatherValues } from "../weather/weather.types";
 import { getWeather } from "../weather/weather.service";
 import {
   extractBusRouteNoFromItinerary,
@@ -32,7 +32,7 @@ import { getTransitRoutes } from "../weather/transit/transit.service";
 import type { TransitItinerary } from "../weather/transit/transit.types";
 import type { PipelineStepName, PipelineTracer } from "./pipelineTracer";
 
-interface RouteCandidate {
+export interface RouteCandidate {
   itineraryIndex: number;
   itinerary: TransitItinerary;
   mapBaseTravelMinutes: number;
@@ -44,6 +44,42 @@ interface RouteCandidate {
   predictedTravelMinutes: number;
   busRouteNo: string | null;
 }
+
+export const selectBestRouteCandidate = (
+  candidates: RouteCandidate[],
+): RouteCandidate | null => {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return [...candidates].sort((a, b) => {
+    if (a.predictedTravelMinutes !== b.predictedTravelMinutes) {
+      return a.predictedTravelMinutes - b.predictedTravelMinutes;
+    }
+    if (a.congestionAdjustMinutes !== b.congestionAdjustMinutes) {
+      return a.congestionAdjustMinutes - b.congestionAdjustMinutes;
+    }
+    return a.itineraryIndex - b.itineraryIndex;
+  })[0];
+};
+
+export const usesMissingWeatherDetailFallback = (
+  selected: SelectedWeatherValues,
+): boolean => {
+  if (selected.pty === "1") {
+    return selected.pcp === undefined;
+  }
+
+  if (selected.pty === "2") {
+    return selected.pcp === undefined || selected.sno === undefined;
+  }
+
+  if (selected.pty === "3") {
+    return selected.sno === undefined;
+  }
+
+  return false;
+};
 
 export interface CalculateDailyPlanInput {
   userId: string;
@@ -222,10 +258,12 @@ export const calculateAndUpsertDailyPlan = async (
   let weatherItems: ReturnType<typeof extractWeatherForecastItems> = [];
   if (startNx !== undefined && startNy !== undefined) {
     try {
-      // 규칙 문서 §11: 날씨 API는 파이프라인 실행 시각(현재) 기준 1회 호출
-      const weatherQueryAt = now;
-      const weatherBaseTime = getWeatherBaseTime(weatherQueryAt);
-      const weatherBaseDate = formatBaseDate(weatherQueryAt);
+      // Weather API is called once at the planned calculation time.
+      const weatherQueryAt = initialTimes.calculationAt;
+      const {
+        baseDate: weatherBaseDate,
+        baseTime: weatherBaseTime,
+      } = getWeatherBaseDateTime(weatherQueryAt);
       const weatherRaw = await getWeather(
         weatherBaseDate,
         weatherBaseTime,
@@ -322,13 +360,16 @@ export const calculateAndUpsertDailyPlan = async (
         let routeWeatherMinutes = 0;
         let routeWeatherType = "CLEAR";
         if (weatherItems.length > 0) {
-          const fcstTime = getWeatherFcstTime(estimatedDepartureAt);
-          const fcstDate = formatBaseDate(estimatedDepartureAt);
+          const { fcstDate, fcstTime } =
+            getWeatherForecastDateTime(estimatedDepartureAt);
           const selected = selectWeatherValuesByTime(
             weatherItems,
             fcstDate,
             fcstTime,
           );
+          if (usesMissingWeatherDetailFallback(selected)) {
+            fallbackUsed = true;
+          }
           const weatherAdjust = mapWeatherToAdjustMinutes(
             selected.pty,
             selected.pcp,
@@ -376,13 +417,16 @@ export const calculateAndUpsertDailyPlan = async (
 
   if (routeCandidates.length === 0) {
     if (weatherItems.length > 0) {
-      const fcstDate = formatBaseDate(initialTimes.calculationAt);
-      const fcstTime = getWeatherFcstTime(initialTimes.calculationAt);
+      const { fcstDate, fcstTime } =
+        getWeatherForecastDateTime(initialTimes.calculationAt);
       const selected = selectWeatherValuesByTime(
         weatherItems,
         fcstDate,
         fcstTime,
       );
+      if (usesMissingWeatherDetailFallback(selected)) {
+        fallbackUsed = true;
+      }
       const weatherAdjust = mapWeatherToAdjustMinutes(
         selected.pty,
         selected.pcp,
@@ -397,17 +441,10 @@ export const calculateAndUpsertDailyPlan = async (
     congestionAdjustMinutes = 0;
     congestionApplied = false;
   } else {
-    routeCandidates.sort((a, b) => {
-      if (a.predictedTravelMinutes !== b.predictedTravelMinutes) {
-        return a.predictedTravelMinutes - b.predictedTravelMinutes;
-      }
-      if (a.congestionAdjustMinutes !== b.congestionAdjustMinutes) {
-        return a.congestionAdjustMinutes - b.congestionAdjustMinutes;
-      }
-      return a.itineraryIndex - b.itineraryIndex;
-    });
-
-    const best = routeCandidates[0];
+    const best = selectBestRouteCandidate(routeCandidates);
+    if (!best) {
+      throw new Error("Route candidate selection failed");
+    }
     trace("route_select", {
       itineraryIndex: best.itineraryIndex,
       busRouteNo: best.busRouteNo,
@@ -430,9 +467,7 @@ export const calculateAndUpsertDailyPlan = async (
   }
 
   const predictedTravelMinutes =
-    routeCandidates.length > 0
-      ? routeCandidates[0].predictedTravelMinutes
-      : mapBaseTravelMinutes + weatherAdjustMinutes + congestionAdjustMinutes;
+    mapBaseTravelMinutes + weatherAdjustMinutes + congestionAdjustMinutes;
 
   const finalTimes = calculateFinalPlanTimes({
     targetArrivalAt: initialTimes.targetArrivalAt,
@@ -474,6 +509,7 @@ export const calculateAndUpsertDailyPlan = async (
     mapBaseTravelMinutes,
     congestionAdjustMinutes,
     predictedTravelMinutes,
+    selectedRouteNo,
     finalDepartureTime: Timestamp.fromDate(finalTimes.finalDepartureAt),
     finalAlarmTime: Timestamp.fromDate(finalTimes.finalAlarmAt),
     weatherApplied,
