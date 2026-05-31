@@ -533,7 +533,16 @@ class _HomeScreenState extends State<HomeScreen> {
         child: ElevatedButton.icon(
           onPressed: () {
             final arrivedAt = DateTime.now();
-            final scheduleId = SettingsService.instance.todayNextSchedule?.scheduleId;
+            final sched = SettingsService.instance.todayNextSchedule;
+            final scheduleId = sched?.scheduleId;
+            // 목표 도착 시각 대비 정시/지각 판정
+            String? resultStatus;
+            final tParts = sched?.targetArrivalTime.split(':');
+            if (tParts != null && tParts.length == 2) {
+              final target = DateTime(arrivedAt.year, arrivedAt.month,
+                  arrivedAt.day, int.parse(tParts[0]), int.parse(tParts[1]));
+              resultStatus = arrivedAt.isAfter(target) ? 'LATE' : 'ON_TIME';
+            }
             SettingsService.instance.saveArrivalLog(
               arrivedAt: arrivedAt,
               scheduleId: scheduleId,
@@ -547,11 +556,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 scheduleId,
                 arrivedAt,
                 actualTravelMinutes: actualMinutes,
+                resultStatus: resultStatus,
               );
             }
             setState(() => _arrived = true);
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('도착이 기록되었습니다. 수고하셨어요!')),
+              SnackBar(
+                content: Text(resultStatus == 'LATE'
+                    ? '지각으로 기록되었습니다.'
+                    : resultStatus == 'ON_TIME'
+                        ? '정시 도착! 수고하셨어요!'
+                        : '도착이 기록되었습니다. 수고하셨어요!'),
+              ),
             );
           },
           icon: const Icon(Icons.school),

@@ -312,6 +312,7 @@ class DailyPlanService {
     String scheduleId,
     DateTime arrivedAt, {
     int? actualTravelMinutes,
+    String? resultStatus,
   }) async {
     final fields = <String, dynamic>{
       'arrivedAt': Timestamp.fromDate(arrivedAt),
@@ -320,7 +321,54 @@ class DailyPlanService {
     if (actualTravelMinutes != null && actualTravelMinutes > 0) {
       fields['actualTravelMinutes'] = actualTravelMinutes;
     }
+    if (resultStatus != null) {
+      fields['resultStatus'] = resultStatus; // 'ON_TIME' | 'LATE'
+    }
     await _updateDailyPlanField(scheduleId, fields);
+  }
+
+  /// 캘린더용: 모든 dailyPlans → planDate별 출결 상태
+  /// 반환값: { 'YYYY-MM-DD': 'ON_TIME' | 'LATE' | 'ABSENT' }
+  Future<Map<String, String>> fetchAttendance() async {
+    final uid = _uid;
+    if (uid == null) return {};
+    final result = <String, String>{};
+    try {
+      final snap = await _db
+          .collection('users')
+          .doc(uid)
+          .collection('dailyPlans')
+          .get();
+      final today = _todayStr();
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        final date = d['planDate'] as String?;
+        if (date == null || date.isEmpty) continue;
+        final rs = d['resultStatus'] as String?;
+        String status;
+        if (rs == 'ON_TIME') {
+          status = 'ON_TIME';
+        } else if (rs == 'LATE') {
+          status = 'LATE';
+        } else if (d['arrivedAt'] == null && date.compareTo(today) < 0) {
+          status = 'ABSENT'; // 지난 날짜인데 도착 기록 없음
+        } else {
+          continue; // 오늘/미래의 미기록은 표시 안 함
+        }
+        result[date] = _mergeAttendance(result[date], status);
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[DailyPlan] fetchAttendance error: $e');
+    }
+    return result;
+  }
+
+  /// 같은 날 여러 수업: 나쁜 상태 우선 (LATE > ABSENT > ON_TIME)
+  String _mergeAttendance(String? prev, String next) {
+    if (prev == null) return next;
+    const rank = {'LATE': 3, 'ABSENT': 2, 'ON_TIME': 1};
+    return (rank[next] ?? 0) >= (rank[prev] ?? 0) ? next : prev;
   }
 
   Future<void> _updateDailyPlanField(

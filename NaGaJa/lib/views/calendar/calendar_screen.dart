@@ -18,6 +18,7 @@
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import '../../services/daily_plan_service.dart';
 
 // 출결 상태 enum
 enum AttendanceStatus { onTime, late, absent, none }
@@ -33,16 +34,32 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _isWeekView = true;        // 주간/월간 뷰 전환 플래그
   DateTime _focusDate = DateTime.now(); // 현재 탐색 중인 날짜 기준점
 
-  // ── Mock 출결 데이터 ──────────────────────────────────────────────────────
-  // Key: 'YYYY-MM-DD' 형식 문자열, Value: 출결 상태
-  // 추후 Firebase Firestore의 실제 출결 이력으로 교체 예정
-  final Map<String, AttendanceStatus> _attendance = {
-    '2026-04-20': AttendanceStatus.onTime,
-    '2026-04-21': AttendanceStatus.onTime,
-    '2026-04-22': AttendanceStatus.late,
-    '2026-04-23': AttendanceStatus.onTime,
-    '2026-04-24': AttendanceStatus.absent,
-  };
+  // ── 출결 데이터 (Firestore dailyPlans 기반) ────────────────────────────────
+  // Key: 'YYYY-MM-DD', Value: 출결 상태 (resultStatus / 도착기록 기반)
+  Map<String, AttendanceStatus> _attendance = {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAttendance();
+  }
+
+  Future<void> _loadAttendance() async {
+    final raw = await DailyPlanService.instance.fetchAttendance();
+    if (!mounted) return;
+    setState(() {
+      _attendance = raw.map((k, v) => MapEntry(k, _statusFromString(v)));
+      _loading = false;
+    });
+  }
+
+  AttendanceStatus _statusFromString(String s) => switch (s) {
+        'ON_TIME' => AttendanceStatus.onTime,
+        'LATE' => AttendanceStatus.late,
+        'ABSENT' => AttendanceStatus.absent,
+        _ => AttendanceStatus.none,
+      };
   // ──────────────────────────────────────────────────────────────────────────
 
   // DateTime → 'YYYY-MM-DD' 키 변환 (Map 조회용)
@@ -70,7 +87,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
+        bottom: _loading
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(2),
+                child: LinearProgressIndicator(minHeight: 2),
+              )
+            : null,
         actions: [
+          IconButton(
+            onPressed: _loading
+                ? null
+                : () {
+                    setState(() => _loading = true);
+                    _loadAttendance();
+                  },
+            icon: const Icon(Icons.refresh, size: 20),
+            tooltip: '새로고침',
+          ),
           // 주간/월간 전환 버튼 (Material 3 SegmentedButton)
           Padding(
             padding: const EdgeInsets.only(right: 12),
