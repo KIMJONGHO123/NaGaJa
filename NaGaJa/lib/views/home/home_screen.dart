@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   DateTime? _nextClassTime;
   bool _departed = false;
+  bool _arrived = false;
   bool _loading = true;
   bool _planRefreshing = false;
   DateTime? _prepStartedAt;
@@ -64,17 +65,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _recomputeNextClass();
     await DailyPlanService.instance.loadTodayPlans();
     _restoreDepartedState();
+    _prepStartedAt = await SettingsService.instance.loadPrepStartedAt();
     if (mounted) setState(() => _loading = false);
   }
 
   void _restoreDepartedState() {
     final plan = _activePlan;
-    if (plan?.departedAt == null) return;
-    final d = plan!.departedAt!;
+    if (plan == null) return;
     final today = DateTime.now();
-    if (d.year == today.year && d.month == today.month && d.day == today.day) {
+    bool isToday(DateTime d) =>
+        d.year == today.year && d.month == today.month && d.day == today.day;
+    if (plan.departedAt != null && isToday(plan.departedAt!)) {
       _departed = true;
-      _departedAt = d;
+      _departedAt = plan.departedAt;
+    }
+    if (plan.arrivedAt != null && isToday(plan.arrivedAt!)) {
+      _arrived = true;
     }
   }
 
@@ -454,6 +460,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActionButtons() {
+    if (_arrived) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: null, // 도착 완료 후 비활성 → 중복 기록 방지
+          icon: const Icon(Icons.check_circle),
+          label: const Text('도착 완료'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF4CAF50),
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: const Color(0xFF4CAF50),
+            disabledForegroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+      );
+    }
+
     if (_departed) {
       return SizedBox(
         width: double.infinity,
@@ -476,6 +502,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 actualTravelMinutes: actualMinutes,
               );
             }
+            setState(() => _arrived = true);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('도착이 기록되었습니다. 수고하셨어요!')),
             );
@@ -500,7 +527,9 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _prepStartedAt != null
                 ? null
                 : () {
-                    setState(() => _prepStartedAt = DateTime.now());
+                    final startedAt = DateTime.now();
+                    setState(() => _prepStartedAt = startedAt);
+                    SettingsService.instance.savePrepStartedAt(startedAt);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('준비 타이머가 시작됩니다!')),
                     );
@@ -530,9 +559,11 @@ class _HomeScreenState extends State<HomeScreen> {
               if (scheduleId != null) {
                 DailyPlanService.instance.updateDepartedAt(scheduleId, departedAt);
               }
+              SettingsService.instance.savePrepStartedAt(null); // 준비 타이머 종료
               setState(() {
                 _departed = true;
                 _departedAt = departedAt;
+                _prepStartedAt = null; // 출발 후 준비 타이머 닫기
               });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('출발 시각 ${_fmt(departedAt)} 기록됨')),

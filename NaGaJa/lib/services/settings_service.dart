@@ -324,6 +324,33 @@ class SettingsService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── 준비 타이머 시작 시각 로컬 저장/복원 ──────────────────────────────────────
+  // 앱 재시작 시 진행 중인 준비 타이머를 복원하기 위한 로컬(휘발성) 값.
+  static const _prepStartedAtKey = 'prepStartedAtMs';
+
+  Future<void> savePrepStartedAt(DateTime? startedAt) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (startedAt == null) {
+      await prefs.remove(_prepStartedAtKey);
+    } else {
+      await prefs.setInt(_prepStartedAtKey, startedAt.millisecondsSinceEpoch);
+    }
+  }
+
+  /// 저장된 준비 시작 시각이 오늘이면 반환, 아니면 정리 후 null
+  Future<DateTime?> loadPrepStartedAt() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ms = prefs.getInt(_prepStartedAtKey);
+    if (ms == null) return null;
+    final t = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    if (t.year == now.year && t.month == now.month && t.day == now.day) {
+      return t;
+    }
+    await prefs.remove(_prepStartedAtKey); // 오래된 값 정리
+    return null;
+  }
+
   // ── SharedPreferences 저장 ───────────────────────────────────────────────────
   Future<void> _saveLocal() async {
     if (userModel == null) return;

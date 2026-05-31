@@ -6,6 +6,7 @@ import 'settings_service.dart';
 import '../models/user_model.dart';
 
 class DailyPlanModel {
+  final String dailyPlanId;
   final String scheduleId;
   final DateTime finalDepartureTime;
   final DateTime finalAlarmTime;
@@ -21,8 +22,10 @@ class DailyPlanModel {
   final bool congestionApplied;
   final bool fallbackUsed;
   final DateTime? departedAt;
+  final DateTime? arrivedAt;
 
   const DailyPlanModel({
+    required this.dailyPlanId,
     required this.scheduleId,
     required this.finalDepartureTime,
     required this.finalAlarmTime,
@@ -38,6 +41,7 @@ class DailyPlanModel {
     required this.congestionApplied,
     required this.fallbackUsed,
     this.departedAt,
+    this.arrivedAt,
   });
 
   factory DailyPlanModel.fromMap(Map<String, dynamic> data) {
@@ -45,6 +49,7 @@ class DailyPlanModel {
         v is Timestamp ? v.toDate() : DateTime.now();
 
     return DailyPlanModel(
+      dailyPlanId: data['dailyPlanId'] as String? ?? '',
       scheduleId: data['scheduleId'] as String? ?? '',
       finalDepartureTime: parseTs(data['finalDepartureTime']),
       finalAlarmTime: parseTs(data['finalAlarmTime']),
@@ -65,6 +70,9 @@ class DailyPlanModel {
       fallbackUsed: data['fallbackUsed'] as bool? ?? false,
       departedAt: data['departedAt'] is Timestamp
           ? (data['departedAt'] as Timestamp).toDate()
+          : null,
+      arrivedAt: data['arrivedAt'] is Timestamp
+          ? (data['arrivedAt'] as Timestamp).toDate()
           : null,
     );
   }
@@ -221,26 +229,16 @@ class DailyPlanService {
       };
 
       final col = _db.collection('users').doc(uid).collection('dailyPlans');
-      final existing = await col
-          .where('planDate', isEqualTo: today)
-          .where('scheduleId', isEqualTo: schedule.scheduleId)
-          .limit(1)
-          .get();
-
-      String planId;
-      if (existing.docs.isEmpty) {
-        final ref = col.doc();
-        planId = ref.id;
-        await ref.set({...data, 'dailyPlanId': planId, 'createdAt': nowTs});
-      } else {
-        final ref = existing.docs[0].reference;
-        planId = ref.id;
-        await ref.set({
-          ...data,
-          'dailyPlanId': planId,
-          'createdAt': existing.docs[0].get('createdAt') ?? nowTs,
-        });
-      }
+      // 백엔드(getDailyPlanDocumentId)·updateDepartedAt/arrivedAt와 동일한 고정 ID 사용.
+      // 고정 ID로 set하면 멱등 → 중복 생성 방지 + 출발/도착 업데이트 경로와 일치.
+      final planId = '${today}_${schedule.scheduleId}';
+      final ref = col.doc(planId);
+      final existing = await ref.get();
+      await ref.set({
+        ...data,
+        'dailyPlanId': planId,
+        'createdAt': existing.exists ? (existing.get('createdAt') ?? nowTs) : nowTs,
+      });
 
       _plans[schedule.scheduleId] = DailyPlanModel.fromMap({...data, 'dailyPlanId': planId});
       // ignore: avoid_print
@@ -332,8 +330,10 @@ class DailyPlanService {
     final uid = _uid;
     if (uid == null) return;
     try {
-      final today = _todayStr();
-      final docId = '${today}_$scheduleId';
+      // 로드된 플랜의 실제 문서 ID 우선 사용 → 레거시 랜덤 ID/백엔드/폴백 고정 ID 모두 대응.
+      // 없으면 백엔드 규칙과 동일한 고정 ID로 폴백.
+      final loadedId = _plans[scheduleId]?.dailyPlanId ?? '';
+      final docId = loadedId.isNotEmpty ? loadedId : '${_todayStr()}_$scheduleId';
       await _db
           .collection('users')
           .doc(uid)
