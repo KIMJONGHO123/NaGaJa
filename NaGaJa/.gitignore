@@ -144,3 +144,4 @@ lib/config/kakao_config.dart
 *.pid
 tmp/
 temp/
+lib/config/kakao_config.dart

@@ -9,7 +9,9 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test:pipeline": "npm run build && npx firebase emulators:exec --only firestore \"node scripts/test-fullDailyPlanPipeline.mjs\""
+    "test:pipeline": "npm run build && npx firebase emulators:exec --only firestore \"node scripts/test-fullDailyPlanPipeline.mjs\"",
+    "test:dailyPlanUpsert": "npm run build && node scripts/test-dailyPlanUpsertTarget.mjs",
+    "test:alarmLogic": "npm run build && node scripts/test-alarmCalculationLogic.mjs"
   },
   "engines": {
     "node": "20"
@@ -25,6 +27,7 @@
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.57.0",
     "eslint-config-google": "^0.14.0",
+    "eslint-plugin-import": "^2.32.0",
     "typescript": "^5.3.0"
   },
   "private": true

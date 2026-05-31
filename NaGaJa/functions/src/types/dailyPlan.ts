@@ -28,6 +28,7 @@ export interface DailyPlan {
   mapBaseTravelMinutes: number;
   congestionAdjustMinutes: number;
   predictedTravelMinutes: number;
+  selectedRouteNo?: string | null;
   finalDepartureTime: Timestamp;
   finalAlarmTime: Timestamp;
   weatherApplied: boolean;
