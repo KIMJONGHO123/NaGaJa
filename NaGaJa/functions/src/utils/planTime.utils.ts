@@ -6,6 +6,33 @@ export const API_CALCULATION_LEAD_MINUTES = 30;
 /** 여유 시간(분) → 알림시계 색상 (문서 예시: 20→GREEN, 5→YELLOW, -5→RED) */
 export const MARGIN_GREEN_MINUTES = 15;
 export const MARGIN_YELLOW_MINUTES = 0;
+const KST_OFFSET_MINUTES = 9 * 60;
+
+const getKstDateParts = (date: Date): {
+  year: string;
+  month: string;
+  day: string;
+} => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const getPart = (type: "year" | "month" | "day"): string => {
+    const value = parts.find((part) => part.type === type)?.value;
+    if (!value) {
+      throw new Error(`Failed to format KST ${type}`);
+    }
+    return value;
+  };
+
+  return {
+    year: getPart("year"),
+    month: getPart("month"),
+    day: getPart("day"),
+  };
+};
 
 /**
  * planDate(YYYY-MM-DD) + HH:mm → KST 기준 Date
@@ -13,18 +40,25 @@ export const MARGIN_YELLOW_MINUTES = 0;
 export const combinePlanDateAndTime = (planDate: string, time: string): Date => {
   const [year, month, day] = planDate.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
-  return new Date(year, month - 1, day, hour, minute, 0, 0);
+  return new Date(
+    Date.UTC(year, month - 1, day, hour, minute, 0, 0) -
+      KST_OFFSET_MINUTES * 60_000,
+  );
 };
 
+// 기준 시간에 지정한 분(minutes)을 더한 새로운 Date 객체를 반환한다.
 export const addMinutes = (date: Date, minutes: number): Date =>
   new Date(date.getTime() + minutes * 60_000);
 
+// 기준 시간에 지정한 분(minutes)을 뺀 새로운 Date 객체를 반환한다.
 export const subtractMinutes = (date: Date, minutes: number): Date =>
   addMinutes(date, -minutes);
 
+// 두 시간 사이의 분(minutes) 차이를 반환한다.
 export const minutesBetween = (later: Date, earlier: Date): number =>
   Math.round((later.getTime() - earlier.getTime()) / 60_000);
 
+// 초(seconds)를 분(minutes)로 변환하고, 1분 이상의 값을 반환한다.
 export const ceilSecondsToMinutes = (seconds: number): number =>
   Math.max(1, Math.ceil(seconds / 60));
 
@@ -112,15 +146,11 @@ export const toDisplayColor = (remainingMarginMinutes: number): DisplayColor => 
  * Date → YYYY-MM-DD 형식 문자열
  */
 export const formatPlanDateKst = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const { year, month, day } = getKstDateParts(date);
   return `${year}-${month}-${day}`;
 };
 
 export const formatBaseDate = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const { year, month, day } = getKstDateParts(date);
   return `${year}${month}${day}`;
 };
