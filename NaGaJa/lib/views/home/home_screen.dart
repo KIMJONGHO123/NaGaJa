@@ -535,13 +535,13 @@ class _HomeScreenState extends State<HomeScreen> {
             final arrivedAt = DateTime.now();
             final sched = SettingsService.instance.todayNextSchedule;
             final scheduleId = sched?.scheduleId;
-            // 목표 도착 시각 대비 정시/지각 판정
+            // 수업 시작 시각(classTime) 기준 정시/지각 판정 (수업 시작 후 도착 = 지각)
             String? resultStatus;
-            final tParts = sched?.targetArrivalTime.split(':');
+            final tParts = sched?.classTime.split(':');
             if (tParts != null && tParts.length == 2) {
-              final target = DateTime(arrivedAt.year, arrivedAt.month,
+              final classStart = DateTime(arrivedAt.year, arrivedAt.month,
                   arrivedAt.day, int.parse(tParts[0]), int.parse(tParts[1]));
-              resultStatus = arrivedAt.isAfter(target) ? 'LATE' : 'ON_TIME';
+              resultStatus = arrivedAt.isAfter(classStart) ? 'LATE' : 'ON_TIME';
             }
             SettingsService.instance.saveArrivalLog(
               arrivedAt: arrivedAt,

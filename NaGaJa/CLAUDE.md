@@ -171,7 +171,7 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 - **준비 타이머 영속화**: 시작 시각 SharedPreferences 저장 → 재시작 복원, 출발 시 종료
 - 로컬 폴백 dailyPlan을 `{planDate}_{scheduleId}` **고정 ID**로 생성(백엔드 규칙 일치, 중복 방지)
 - 출발/도착 업데이트를 **로드된 실제 `dailyPlanId`** 로 수행 (레거시 랜덤 ID/백엔드 ID 모두 대응)
-- **`resultStatus`(ON_TIME/LATE)** 도착 시 계산·저장 (`arrivedAt` vs `targetArrivalTime`)
+- **`resultStatus`(ON_TIME/LATE)** 도착 시 계산·저장 (`arrivedAt` vs **`classTime`(수업 시작 시각)** — 수업 시작 후 도착 = 지각)
 - **캘린더 Firestore 실연동**: `dailyPlans` 기반 정시/지각/결석 집계 (Mock 제거, 새로고침 버튼)
 - `arrivalLogs` 보안 규칙 추가 및 배포 완료
 
@@ -213,7 +213,14 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 | `fallbackUsed` | `false`일 때만 카드 표시, `true`면 "실시간 경로 계산하기" 표시 |
 | `departedAt` / `arrivedAt` | 출발/도착 버튼 저장, 앱 재시작 시 `_departed`/`_arrived` 복원, 도착 후 버튼 비활성 |
 | `actualTravelMinutes` | 도착 확인 시 `arrivedAt - departedAt` 자동 계산 저장 |
-| `resultStatus` | 도착 시 `arrivedAt` vs `targetArrivalTime`로 ON_TIME/LATE 저장, 캘린더 집계 |
+| `resultStatus` | 도착 시 `arrivedAt` vs **`classTime`** 비교로 ON_TIME/LATE 저장, 캘린더 집계 |
+
+### 출결 판정 기준
+- **정시(ON_TIME)**: 도착 버튼 누른 시각(`arrivedAt`)이 **수업 시작 시각(`classTime`) 이하** (예: 9:00 수업 → 9:00:00까지 도착)
+- **지각(LATE)**: `arrivedAt`이 `classTime` 초과 (예: 9:00 수업 → 9:00 이후 도착)
+- **결석(ABSENT)**: 지난 날짜에 수업(플랜)이 있었으나 도착 기록(`arrivedAt`)이 없음 (추론)
+- 하루 여러 수업: 나쁜 상태 우선 (지각 > 결석 > 정시)
+- 기준 시각은 `targetArrivalTime`(=수업-5분, 출발시각 계산용)이 **아니라** `classTime`임에 유의
 
 ### 미구현 (Flutter)
 | 필드 | 상태 |
