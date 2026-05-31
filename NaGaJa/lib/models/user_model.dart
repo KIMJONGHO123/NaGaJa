@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// users/{userId}
@@ -130,8 +131,46 @@ class ScheduleEntry {
       'transportMode': transportMode,
       'isActive': isActive,
     };
-    // 좌표(Lat/Lng, Nx/Ny)는 백엔드가 주소 기반으로 계산해서 저장 → Flutter에서 쓰지 않음
+    // 좌표가 있으면 함께 저장 → 백엔드가 지오코딩을 건너뜀 (geocoding 500 회피).
+    // null이면 생략(merge) → 백엔드가 주소 기반으로 계산·캐시(기존 캐시 보존).
+    if (startLat != null && startLng != null) {
+      m['startLat'] = startLat;
+      m['startLng'] = startLng;
+      // 날씨용 기상청 격자도 함께 저장 (없으면 백엔드가 날씨 fallback 처리)
+      final g = _toKmaGrid(startLat!, startLng!);
+      m['startNx'] = g.$1;
+      m['startNy'] = g.$2;
+    }
+    if (endLat != null && endLng != null) {
+      m['endLat'] = endLat;
+      m['endLng'] = endLng;
+    }
     return m;
+  }
+
+  /// WGS84(lat,lng) → 기상청 단기예보 격자 (nx, ny).
+  /// 백엔드 convertToGrid와 동일한 Lambert Conformal Conic 공식.
+  static (int, int) _toKmaGrid(double lat, double lng) {
+    const double re = 6371.00877 / 5.0; // RE / GRID
+    final double degrad = math.pi / 180.0;
+    final double slat1 = 30.0 * degrad, slat2 = 60.0 * degrad;
+    final double olon = 126.0 * degrad, olat = 38.0 * degrad;
+    double sn = math.tan(math.pi * 0.25 + slat2 * 0.5) /
+        math.tan(math.pi * 0.25 + slat1 * 0.5);
+    sn = math.log(math.cos(slat1) / math.cos(slat2)) / math.log(sn);
+    double sf = math.tan(math.pi * 0.25 + slat1 * 0.5);
+    sf = math.pow(sf, sn).toDouble() * math.cos(slat1) / sn;
+    double ro = math.tan(math.pi * 0.25 + olat * 0.5);
+    ro = re * sf / math.pow(ro, sn).toDouble();
+    double ra = math.tan(math.pi * 0.25 + lat * degrad * 0.5);
+    ra = re * sf / math.pow(ra, sn).toDouble();
+    double theta = lng * degrad - olon;
+    if (theta > math.pi) theta -= 2.0 * math.pi;
+    if (theta < -math.pi) theta += 2.0 * math.pi;
+    theta *= sn;
+    final int nx = (ra * math.sin(theta) + 43.0 + 0.5).floor();
+    final int ny = (ro - ra * math.cos(theta) + 136.0 + 0.5).floor();
+    return (nx, ny);
   }
 
   /// "HH:MM" 문자열 → TimeOfDay
