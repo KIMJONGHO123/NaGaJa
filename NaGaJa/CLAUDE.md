@@ -171,11 +171,12 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 - **준비 타이머 영속화**: 시작 시각 SharedPreferences 저장 → 재시작 복원, 출발 시 종료
 - 로컬 폴백 dailyPlan을 `{planDate}_{scheduleId}` **고정 ID**로 생성(백엔드 규칙 일치, 중복 방지)
 - 출발/도착 업데이트를 **로드된 실제 `dailyPlanId`** 로 수행 (레거시 랜덤 ID/백엔드 ID 모두 대응)
+- **`resultStatus`(ON_TIME/LATE)** 도착 시 계산·저장 (`arrivedAt` vs `targetArrivalTime`)
+- **캘린더 Firestore 실연동**: `dailyPlans` 기반 정시/지각/결석 집계 (Mock 제거, 새로고침 버튼)
 - `arrivalLogs` 보안 규칙 추가 및 배포 완료
 
 **미완성 (Flutter)**
-- 캘린더 화면 출결 데이터 Mock → Firestore 실연동
-- `resultStatus` (`ON_TIME`/`LATE`) 계산 및 저장 (수동 도착 경로부터 가능)
+- 캘린더 자동 새로고침: `IndexedStack`으로 시작 시 1회 로드 → 도착 직후 반영은 새로고침 버튼 필요 (탭 포커스 시 자동 reload 개선 여지)
 
 **미완성 (백엔드·협의 필요)**
 - FCM 푸시 알림 (`finalAlarmTime` 기준)
@@ -212,11 +213,11 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 | `fallbackUsed` | `false`일 때만 카드 표시, `true`면 "실시간 경로 계산하기" 표시 |
 | `departedAt` / `arrivedAt` | 출발/도착 버튼 저장, 앱 재시작 시 `_departed`/`_arrived` 복원, 도착 후 버튼 비활성 |
 | `actualTravelMinutes` | 도착 확인 시 `arrivedAt - departedAt` 자동 계산 저장 |
+| `resultStatus` | 도착 시 `arrivedAt` vs `targetArrivalTime`로 ON_TIME/LATE 저장, 캘린더 집계 |
 
 ### 미구현 (Flutter)
 | 필드 | 상태 |
 |------|------|
-| `resultStatus` | `ON_TIME`/`LATE` 판단 로직 미구현 |
 | `finalAlarmTime` | 카드로 표시는 하나 FCM 알람 발송 없음 |
 | `alarmDismissedAt` | 미구현 |
 | Wi-Fi 자동 감지 | `homeWifiSsids`/`schoolWifiSsids` 저장만, 감지 로직 없음 |
