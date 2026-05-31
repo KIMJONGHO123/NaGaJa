@@ -198,6 +198,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               _buildInfoCard(),
+              if (_nextClassTime != null &&
+                  _activePlan != null &&
+                  !_activePlan!.fallbackUsed) ...[
+                const SizedBox(height: 12),
+                _buildPlanCards(_activePlan!),
+              ],
               const SizedBox(height: 16),
               if (_status == _Status.lateRisk && _nextClassTime != null) ...[
                 _buildLateWarningCard(),
@@ -273,10 +279,6 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_nextClassTime != null) ...[
             const SizedBox(height: 12),
             _buildPlanRefreshRow(hasPlan),
-            if (_activePlan != null && !_activePlan!.fallbackUsed) ...[
-              const SizedBox(height: 8),
-              _buildPlanDetail(_activePlan!),
-            ],
           ],
         ],
       ),
@@ -306,7 +308,9 @@ class _HomeScreenState extends State<HomeScreen> {
             _planRefreshing
                 ? '경로 계산 중...'
                 : hasPlan
-                    ? 'AI 예측 적용됨 · 새로고침'
+                    ? (_activePlan?.selectedRouteNo != null
+                        ? '${_activePlan!.selectedRouteNo}번 기준 · 새로고침'
+                        : 'AI 예측 적용됨 · 새로고침')
                     : '실시간 경로 계산하기',
             style: TextStyle(fontSize: 11, color: Colors.grey[400]),
           ),
@@ -315,52 +319,95 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPlanDetail(DailyPlanModel plan) {
-    final items = <Widget>[];
-
-    if (plan.selectedRouteNo != null) {
-      items.add(_detailChip(Icons.directions_bus, '${plan.selectedRouteNo}번 기준'));
-    } else {
-      final mode = (SettingsService.instance.todayNextSchedule ??
-              SettingsService.instance.nextSchedule)
-          ?.transportMode
-          .toUpperCase();
-      final (IconData modeIcon, String modeLabel) = switch (mode) {
-        'SUBWAY' => (Icons.subway_outlined, '지하철 기준'),
-        'WALK'   => (Icons.directions_walk, '도보 기준'),
-        _        => (Icons.directions_bus_outlined, '버스 기준'),
-      };
-      items.add(_detailChip(modeIcon, modeLabel));
-    }
-
-    if (plan.congestionApplied && plan.congestionAdjustMinutes > 0) {
-      items.add(_detailChip(Icons.people_outline, '혼잡 +${plan.congestionAdjustMinutes}분'));
-    }
-    if (plan.weatherApplied && plan.weatherAdjustMinutes > 0) {
-      final icon = plan.weatherType == 'RAIN'
-          ? Icons.umbrella_outlined
-          : Icons.ac_unit;
-      items.add(_detailChip(icon, '날씨 +${plan.weatherAdjustMinutes}분'));
-    }
-
-    if (items.isEmpty) return const SizedBox.shrink();
-
-    return Wrap(
-      spacing: 6,
-      runSpacing: 4,
-      alignment: WrapAlignment.center,
-      children: items,
+  /// 기상 알람 + 날씨/혼잡 보정 카드 (fallbackUsed=false일 때만 표시)
+  Widget _buildPlanCards(DailyPlanModel plan) {
+    return Column(
+      children: [
+        _alarmCard(plan),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _weatherCard(plan)),
+            const SizedBox(width: 12),
+            Expanded(child: _congestionCard(plan)),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _detailChip(IconData icon, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 11, color: Colors.grey[400]),
-        const SizedBox(width: 3),
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[400])),
-      ],
+  Widget _alarmCard(DailyPlanModel plan) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F0FE),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active,
+              size: 20, color: Color(0xFFFBBC04)),
+          const SizedBox(width: 10),
+          Text('기상 알람',
+              style: TextStyle(fontSize: 14, color: Colors.grey[700])),
+          const Spacer(),
+          Text(
+            _fmt(plan.finalAlarmTime),
+            style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A73E8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _weatherCard(DailyPlanModel plan) {
+    final (IconData icon, String label) = switch (plan.weatherType) {
+      'RAIN' => (Icons.umbrella, '비'),
+      'SNOW' => (Icons.ac_unit, '눈'),
+      _ => (Icons.wb_sunny, '맑음'),
+    };
+    return _miniCard(
+        icon, const Color(0xFFFFA726), label, '+${plan.weatherAdjustMinutes}분');
+  }
+
+  Widget _congestionCard(DailyPlanModel plan) {
+    return _miniCard(Icons.traffic, const Color(0xFFEF5350), '혼잡도 보정',
+        '+${plan.congestionAdjustMinutes}분');
+  }
+
+  Widget _miniCard(IconData icon, Color iconColor, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(label,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                    overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(value,
+              style:
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 
