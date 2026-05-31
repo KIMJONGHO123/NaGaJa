@@ -13,8 +13,14 @@ class DailyPlanModel {
   final String displayColor; // GREEN | YELLOW | RED
   final String weatherType;
   final int congestionAdjustMinutes;
+  final int weatherAdjustMinutes;
   final int remainingMarginMinutes;
   final String planStatus;
+  final String? selectedRouteNo;
+  final bool weatherApplied;
+  final bool congestionApplied;
+  final bool fallbackUsed;
+  final DateTime? departedAt;
 
   const DailyPlanModel({
     required this.scheduleId,
@@ -24,8 +30,14 @@ class DailyPlanModel {
     required this.displayColor,
     required this.weatherType,
     required this.congestionAdjustMinutes,
+    required this.weatherAdjustMinutes,
     required this.remainingMarginMinutes,
     required this.planStatus,
+    this.selectedRouteNo,
+    required this.weatherApplied,
+    required this.congestionApplied,
+    required this.fallbackUsed,
+    this.departedAt,
   });
 
   factory DailyPlanModel.fromMap(Map<String, dynamic> data) {
@@ -42,9 +54,18 @@ class DailyPlanModel {
       weatherType: data['weatherType'] as String? ?? 'CLEAR',
       congestionAdjustMinutes:
           (data['congestionAdjustMinutes'] as num?)?.toInt() ?? 0,
+      weatherAdjustMinutes:
+          (data['weatherAdjustMinutes'] as num?)?.toInt() ?? 0,
       remainingMarginMinutes:
           (data['remainingMarginMinutes'] as num?)?.toInt() ?? 0,
       planStatus: data['planStatus'] as String? ?? 'CALCULATED',
+      selectedRouteNo: data['selectedRouteNo'] as String?,
+      weatherApplied: data['weatherApplied'] as bool? ?? false,
+      congestionApplied: data['congestionApplied'] as bool? ?? false,
+      fallbackUsed: data['fallbackUsed'] as bool? ?? false,
+      departedAt: data['departedAt'] is Timestamp
+          ? (data['departedAt'] as Timestamp).toDate()
+          : null,
     );
   }
 }
@@ -162,7 +183,7 @@ class DailyPlanService {
       final remainingMargin = isToday
           ? targetArrivalAt.difference(now).inMinutes - travelMin
           : prepMin; // 미래 날짜: 준비시간만큼 여유로 설정
-      final displayColor = remainingMargin > 10 ? 'GREEN' : remainingMargin >= 0 ? 'YELLOW' : 'RED';
+      final displayColor = remainingMargin > 15 ? 'GREEN' : remainingMargin >= 0 ? 'YELLOW' : 'RED';
 
       final nowTs = Timestamp.now();
       final data = {
@@ -181,10 +202,11 @@ class DailyPlanService {
         'predictedTravelMinutes': travelMin,
         'congestionAdjustMinutes': 0,
         'weatherAdjustMinutes': 0,
-        'weatherType': '',
+        'weatherType': 'CLEAR',
         'weatherApplied': false,
         'congestionApplied': false,
         'fallbackUsed': true,
+        'selectedRouteNo': null,
         'planStatus': 'CALCULATED',
         'remainingMarginMinutes': remainingMargin,
         'displayColor': displayColor,
@@ -276,6 +298,51 @@ class DailyPlanService {
     } catch (e) {
       // ignore: avoid_print
       print('[DailyPlan] loadTodayPlans error: $e');
+    }
+  }
+
+  /// dailyPlan.departedAt 업데이트 (출발 버튼)
+  Future<void> updateDepartedAt(String scheduleId, DateTime departedAt) async {
+    await _updateDailyPlanField(scheduleId, {
+      'departedAt': Timestamp.fromDate(departedAt),
+      'updatedAt': Timestamp.now(),
+    });
+  }
+
+  /// dailyPlan.arrivedAt 업데이트 (도착 확인 버튼)
+  Future<void> updateArrivedAt(
+    String scheduleId,
+    DateTime arrivedAt, {
+    int? actualTravelMinutes,
+  }) async {
+    final fields = <String, dynamic>{
+      'arrivedAt': Timestamp.fromDate(arrivedAt),
+      'updatedAt': Timestamp.now(),
+    };
+    if (actualTravelMinutes != null && actualTravelMinutes > 0) {
+      fields['actualTravelMinutes'] = actualTravelMinutes;
+    }
+    await _updateDailyPlanField(scheduleId, fields);
+  }
+
+  Future<void> _updateDailyPlanField(
+    String scheduleId,
+    Map<String, dynamic> fields,
+  ) async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      final today = _todayStr();
+      final docId = '${today}_$scheduleId';
+      await _db
+          .collection('users')
+          .doc(uid)
+          .collection('dailyPlans')
+          .doc(docId)
+          .update(fields);
+    } catch (e) {
+      // ignore: avoid_print
+      print('[DailyPlan] updateField error: $e');
     }
   }
 

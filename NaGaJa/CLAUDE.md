@@ -1,0 +1,244 @@
+# NaGaJa 프로젝트
+
+## 개요
+
+**나가자(NaGaJa)** — 학생의 시간표, 위치, 교통수단, 준비시간을 기반으로 최적 출발 시각을 자동 계산해주는 등교 지원 앱.
+날씨·혼잡도·대중교통 경로를 실시간으로 반영하고, IoT 물리 알람시계(Raspberry Pi)와 연동한다.
+
+## 기술 스택
+
+| 계층 | 기술 |
+|------|------|
+| 프론트엔드 | Flutter (Dart), iOS/Android |
+| 백엔드 | Firebase Cloud Functions (TypeScript) |
+| DB | Cloud Firestore |
+| 인증 | Firebase Auth (Google Sign-In) |
+| 외부 API | TMAP 대중교통, 기상청 단기예보, Kakao Maps 지오코딩 |
+| 하드웨어 | Raspberry Pi 4, NeoPixel LED, OLED |
+| 배포 리전 | asia-northeast3 (서울) |
+| Firebase 프로젝트 | nagaja-a6a8b |
+
+## 프로젝트 구조
+
+```
+NaGaJa/
+├── lib/                        # Flutter 앱 (Dart)
+│   ├── main.dart               # 진입점 + 라우팅
+│   ├── models/user_model.dart  # UserModel, ScheduleEntry, DailyPlanModel
+│   ├── services/
+│   │   ├── auth_service.dart         # Firebase Auth / Google Sign-In
+│   │   ├── settings_service.dart     # 시간표·사용자 설정 (ChangeNotifier)
+│   │   ├── daily_plan_service.dart   # Cloud Function 호출 + 캐시
+│   │   └── kakao_address_service.dart
+│   └── views/
+│       ├── home/home_screen.dart     # 메인: 시계, 게이지, 준비/출발 버튼
+│       ├── calendar/calendar_screen.dart
+│       ├── settings/settings_screen.dart
+│       ├── late_response/late_response_screen.dart
+│       └── onboarding/onboarding_screen.dart
+│
+├── functions/src/              # Cloud Functions (TypeScript)
+│   ├── index.ts                # HTTP 엔드포인트 정의
+│   ├── services/
+│   │   ├── dailyPlanPipeline.ts    # 파이프라인 오케스트레이션
+│   │   ├── dailyPlanCalculator.ts  # 핵심 계산 로직
+│   │   └── pipelineTracer.ts       # 파이프라인 단계 추적
+│   ├── types/                  # User, Schedule, DailyPlan 인터페이스
+│   ├── utils/planTime.utils.ts # 시간 계산 유틸
+│   └── weather/                # 외부 API 모듈
+│       ├── weather.service.ts      # 기상청 API
+│       ├── geocoding.service.ts    # Kakao 지오코딩
+│       ├── transit/                # TMAP 대중교통
+│       └── congestion/             # CSV 기반 버스 혼잡도
+│
+├── firestore.rules             # Firestore 보안 규칙
+└── firebase.json               # Firebase 설정
+```
+
+## Firestore 스키마
+
+```
+users/{userId}
+  prepMinutes: number           # 준비 시간 (분)
+  defaultTravelMinutes: number  # 기본 이동 시간 (분)
+
+users/{userId}/schedules/{scheduleId}
+  title: string                 # 과목명
+  dayOfWeek: number             # 1=월 ~ 7=일
+  classTime: string             # "HH:MM"
+  targetArrivalTime: string     # "HH:MM"
+  startAddress / destinationAddress: string
+  startLat, startLng, startNx, startNy: number  # 출발지 좌표 (캐시됨)
+  endLat, endLng: number                         # 목적지 좌표 (캐시됨)
+  transportMode: "BUS" | "SUBWAY" | "WALK"
+  isActive: boolean
+
+users/{userId}/dailyPlans/{planDate_scheduleId}
+  finalDepartureTime: Timestamp # 최종 출발 시각
+  finalAlarmTime: Timestamp     # 최종 알람 시각
+  predictedTravelMinutes: number
+  mapBaseTravelMinutes: number
+  weatherAdjustMinutes: number
+  congestionAdjustMinutes: number
+  selectedRouteNo: string | null  # 선택된 버스 노선번호 (버스 외 노선은 null)
+  weatherType: "CLEAR" | "RAIN" | "SNOW"
+  weatherApplied: boolean
+  congestionApplied: boolean
+  displayColor: "GREEN" | "YELLOW" | "RED"
+  remainingMarginMinutes: number
+  fallbackUsed: boolean
+  planStatus: "CALCULATED" | "FAILED"
+  # 사용자 행동 기록 (현재 버튼 수동 저장, 설계 의도는 Wi-Fi 자동 감지)
+  departedAt?: Timestamp        # 출발 시각
+  arrivedAt?: Timestamp         # 도착 시각
+  actualTravelMinutes?: number  # 실제 이동시간 (departedAt ~ arrivedAt)
+  resultStatus?: "ON_TIME" | "LATE"  # 결과 상태 (미구현)
+  alarmDismissedAt?: Timestamp  # 알람 해제 시각 (미구현)
+```
+
+## 핵심 시간 계산 공식
+
+```
+calculationAt      = targetArrivalTime - defaultTravelMinutes - prepMinutes - 30분
+baseDepartureAt    = targetArrivalTime - defaultTravelMinutes
+baseAlarmAt        = baseDepartureAt - prepMinutes
+
+predictedTravelMinutes = mapBaseTravelMinutes + congestionAdjustMinutes + weatherAdjustMinutes
+finalDepartureAt   = targetArrivalTime - predictedTravelMinutes
+finalAlarmAt       = finalDepartureAt - prepMinutes
+
+remainingMarginMinutes = (targetArrivalAt - now) - predictedTravelMinutes
+displayColor:
+  GREEN  → remainingMarginMinutes > 15
+  YELLOW → remainingMarginMinutes >= 0
+  RED    → remainingMarginMinutes < 0
+```
+
+## Cloud Functions 엔드포인트
+
+| 함수명 | 역할 |
+|--------|------|
+| `generateDailyPlan` | **핵심** — 일일 계획 계산 및 Firestore 저장 |
+| `getTransitData` | TMAP 대중교통 경로 조회 |
+| `getCongestionData` | 버스 혼잡도 계산 |
+| `getWeatherData` | 날씨 조회 |
+| `createUser` | 테스트용 mock 유저 생성 |
+| `createSchedule` | 테스트용 mock 스케줄 생성 |
+| `createDailyPlansAtDawn` | **scheduled** — 새벽에 당일 dailyPlan 일괄 생성 (배포됨, 코드 미포함) |
+| `calculatePendingDailyPlans` | **scheduled** — 미계산 dailyPlan 재처리 (배포됨, 코드 미포함) |
+
+## generateDailyPlan 파이프라인 흐름
+
+```
+HTTP 요청 (userId, planDate?, scheduleId?)
+  → runFullDailyPlanPipeline
+  → calculateAndUpsertDailyPlan (스케줄별 반복)
+      1. 유저 / 스케줄 로드
+      2. 좌표 없으면 Kakao 지오코딩 후 스케줄에 저장 (캐시)
+      3. 기상청 API로 날씨 조회
+      4. TMAP API로 경로 후보 최대 10개 조회
+      5. 경로별: 혼잡도(버스만) + 날씨 보정 계산
+      6. 최적 경로(predictedTravelMinutes 최소) 선택
+      7. finalDepartureTime / finalAlarmTime 산출
+      8. Firestore dailyPlans에 upsert
+  → 결과 반환
+```
+
+## 외부 API 동작 방식
+
+- **TMAP 대중교통**: `searchDttm` 파라미터로 미래 시간 기준 경로 조회, 버스/지하철/복합 경로 반환
+- **기상청 단기예보**: WGS84 → grid 좌표 변환 후 조회, 강수형태(PTY)·강수량(PCP)·적설(SNO) 기준으로 이동시간 보정
+- **Kakao 지오코딩**: 주소 → 위도/경도 변환, 스케줄에 캐시되어 재호출 방지
+- **혼잡도**: 부산 버스 노선 CSV 데이터 내장, 시간대 슬롯 기준 보정값 산출
+
+## Flutter 앱 상태 관리
+
+- `SettingsService` (ChangeNotifier): 사용자 프로필, 시간표 Firestore 동기화
+- `DailyPlanService`: Cloud Function 호출 결과 캐시, 폴백 로컬 계산
+- `IndexedStack`으로 탭 전환 시 상태 유지
+- 홈 화면: 1초 Timer로 실시간 시계/카운트다운 갱신
+
+## 완료 / 미완성 기능
+
+**완료**
+- 핵심 시간 계산 엔진 (날씨 + 혼잡도 + TMAP)
+- 전체 UI (홈, 캘린더, 설정, 지각대응, 온보딩)
+- Firebase Auth, Firestore 연동
+- 홈 화면 버스번호 / 혼잡도 / 날씨 보정 표시 (`fallbackUsed: false`일 때만)
+- "출발" / "도착 확인" 버튼 → `dailyPlan.departedAt` / `arrivedAt` / `actualTravelMinutes` 저장
+- 앱 재시작 시 `_departed` 상태 Firestore에서 복원
+- `arrivalLogs` 보안 규칙 추가 및 배포 완료
+
+**미완성 (Flutter)**
+- 캘린더 화면 출결 데이터 Mock → Firestore 실연동
+- `resultStatus` (`ON_TIME`/`LATE`) 계산 및 저장
+- 준비 타이머 UI
+
+**미완성 (백엔드·협의 필요)**
+- FCM 푸시 알림 (`finalAlarmTime` 기준)
+- Wi-Fi 자동 출발/도착 감지 (`homeWifiSsids`/`schoolWifiSsids` 활용)
+- `alarmDismissedAt` 저장
+- Raspberry Pi BLE 연동
+
+## Firestore 인덱스
+
+배포된 복합 인덱스 (현재 1개):
+
+| 컬렉션 | 필드 | 용도 |
+|--------|------|------|
+| `dailyPlans` | `planStatus` (ASC) + `calculationTime` (ASC) | 미계산 플랜 조회 |
+
+## 팀 브랜치 구조
+
+| 브랜치 | 역할 |
+|--------|------|
+| `main` | 배포 브랜치 |
+| `dev` | 공용 통합 브랜치 (팀원 간 공유) |
+| `kim` | 김종호 작업 브랜치 (백엔드 담당) |
+| `dev_woosuk` | 우석 작업 브랜치 |
+
+## Flutter ↔ 백엔드 연계 현황
+
+### 구현 완료
+| 필드 | 상태 |
+|------|------|
+| `weatherType` | 홈 화면 아이콘으로 표시 (비/눈/맑음) |
+| `congestionAdjustMinutes` | 홈 화면 `혼잡 +N분`으로 표시 |
+| `weatherAdjustMinutes` | 홈 화면 `날씨 +N분`으로 표시 |
+| `selectedRouteNo` | 홈 화면 `N번 기준`으로 표시 |
+| `fallbackUsed` | `false`일 때만 상세 표시, `true`면 "실시간 경로 계산하기" 표시 |
+| `departedAt` / `arrivedAt` | 출발/도착 확인 버튼으로 저장, 앱 재시작 시 복원 |
+| `actualTravelMinutes` | 도착 확인 시 `arrivedAt - departedAt` 자동 계산 저장 |
+
+### 미구현 (Flutter)
+| 필드 | 상태 |
+|------|------|
+| `resultStatus` | `ON_TIME`/`LATE` 판단 로직 미구현 |
+| `finalAlarmTime` | 읽지만 FCM 알람 발송 없음 |
+| `alarmDismissedAt` | 미구현 |
+| Wi-Fi 자동 감지 | `homeWifiSsids`/`schoolWifiSsids` 저장만, 감지 로직 없음 |
+
+### 설계 의도 vs 현재 구현
+- `departedAt` / `arrivedAt`: 설계는 Wi-Fi 자동 감지 기반, 현재는 버튼 수동 저장
+- 아침 자동 실행(`createDailyPlansAtDawn`): 스케줄러 배포됨, Flutter는 수동 트리거 병행
+
+## 개발 환경
+
+```bash
+# Flutter 앱 실행
+flutter run
+
+# Cloud Functions 로컬 에뮬레이터
+cd functions && npm run serve
+
+# Functions 배포
+firebase deploy --only functions
+
+# Firestore 에뮬레이터 포트: 8080 / Functions: 5001 / Auth: 9099
+```
+
+## 환경 변수 (functions/.env)
+
+- `WEATHER_SERVICE_KEY` — 기상청 API 인증키
+- `TMAP_APP_KEY` — TMAP API 키 (transit.config.ts)
+- `KAKAO_REST_API_KEY` — Kakao REST API 키

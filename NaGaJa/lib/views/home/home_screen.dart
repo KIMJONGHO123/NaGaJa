@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = true;
   bool _planRefreshing = false;
   DateTime? _prepStartedAt;
+  DateTime? _departedAt;
 
   int get _prepMinutes => SettingsService.instance.prepMinutes;
 
@@ -61,9 +62,20 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initSettings() async {
     await SettingsService.instance.load();
     _recomputeNextClass();
-    // 이미 Firestore에 저장된 오늘 plan 로드
     await DailyPlanService.instance.loadTodayPlans();
+    _restoreDepartedState();
     if (mounted) setState(() => _loading = false);
+  }
+
+  void _restoreDepartedState() {
+    final plan = _activePlan;
+    if (plan?.departedAt == null) return;
+    final d = plan!.departedAt!;
+    final today = DateTime.now();
+    if (d.year == today.year && d.month == today.month && d.day == today.day) {
+      _departed = true;
+      _departedAt = d;
+    }
   }
 
   void _onSettingsChanged() {
@@ -227,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final departStr = (_nextClassTime != null && _shouldDepartAt != null)
         ? _fmt(_shouldDepartAt!)
         : '--:--';
-    final hasPlan = _activePlan != null;
+    final hasPlan = _activePlan != null && !_activePlan!.fallbackUsed;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -255,6 +267,10 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_nextClassTime != null) ...[
             const SizedBox(height: 12),
             _buildPlanRefreshRow(hasPlan),
+            if (_activePlan != null && !_activePlan!.fallbackUsed) ...[
+              const SizedBox(height: 8),
+              _buildPlanDetail(_activePlan!),
+            ],
           ],
         ],
       ),
@@ -290,6 +306,55 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPlanDetail(DailyPlanModel plan) {
+    final items = <Widget>[];
+
+    if (plan.selectedRouteNo != null) {
+      items.add(_detailChip(Icons.directions_bus, '${plan.selectedRouteNo}번 기준'));
+    } else {
+      final mode = (SettingsService.instance.todayNextSchedule ??
+              SettingsService.instance.nextSchedule)
+          ?.transportMode
+          .toUpperCase();
+      final (IconData modeIcon, String modeLabel) = switch (mode) {
+        'SUBWAY' => (Icons.subway_outlined, '지하철 기준'),
+        'WALK'   => (Icons.directions_walk, '도보 기준'),
+        _        => (Icons.directions_bus_outlined, '버스 기준'),
+      };
+      items.add(_detailChip(modeIcon, modeLabel));
+    }
+
+    if (plan.congestionApplied && plan.congestionAdjustMinutes > 0) {
+      items.add(_detailChip(Icons.people_outline, '혼잡 +${plan.congestionAdjustMinutes}분'));
+    }
+    if (plan.weatherApplied && plan.weatherAdjustMinutes > 0) {
+      final icon = plan.weatherType == 'RAIN'
+          ? Icons.umbrella_outlined
+          : Icons.ac_unit;
+      items.add(_detailChip(icon, '날씨 +${plan.weatherAdjustMinutes}분'));
+    }
+
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      alignment: WrapAlignment.center,
+      children: items,
+    );
+  }
+
+  Widget _detailChip(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 11, color: Colors.grey[400]),
+        const SizedBox(width: 3),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+      ],
     );
   }
 
@@ -394,10 +459,23 @@ class _HomeScreenState extends State<HomeScreen> {
         width: double.infinity,
         child: ElevatedButton.icon(
           onPressed: () {
+            final arrivedAt = DateTime.now();
+            final scheduleId = SettingsService.instance.todayNextSchedule?.scheduleId;
             SettingsService.instance.saveArrivalLog(
-              arrivedAt: DateTime.now(),
-              scheduleId: SettingsService.instance.todayNextSchedule?.scheduleId,
+              arrivedAt: arrivedAt,
+              scheduleId: scheduleId,
             );
+            if (scheduleId != null) {
+              final dep = _departedAt ?? _activePlan?.departedAt;
+              final actualMinutes = dep != null
+                  ? arrivedAt.difference(dep).inMinutes
+                  : null;
+              DailyPlanService.instance.updateArrivedAt(
+                scheduleId,
+                arrivedAt,
+                actualTravelMinutes: actualMinutes,
+              );
+            }
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('도착이 기록되었습니다. 수고하셨어요!')),
             );
@@ -441,14 +519,21 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ElevatedButton.icon(
             onPressed: () {
               final departedAt = DateTime.now();
+              final scheduleId = SettingsService.instance.todayNextSchedule?.scheduleId;
               if (_prepStartedAt != null) {
                 SettingsService.instance.savePrepLog(
                   startedAt: _prepStartedAt!,
                   departedAt: departedAt,
-                  scheduleId: SettingsService.instance.todayNextSchedule?.scheduleId,
+                  scheduleId: scheduleId,
                 );
               }
-              setState(() => _departed = true);
+              if (scheduleId != null) {
+                DailyPlanService.instance.updateDepartedAt(scheduleId, departedAt);
+              }
+              setState(() {
+                _departed = true;
+                _departedAt = departedAt;
+              });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('출발 시각 ${_fmt(departedAt)} 기록됨')),
               );
