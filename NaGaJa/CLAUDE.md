@@ -164,15 +164,18 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 - 핵심 시간 계산 엔진 (날씨 + 혼잡도 + TMAP)
 - 전체 UI (홈, 캘린더, 설정, 지각대응, 온보딩)
 - Firebase Auth, Firestore 연동
-- 홈 화면 버스번호 / 혼잡도 / 날씨 보정 표시 (`fallbackUsed: false`일 때만)
+- 홈 화면 정보 카드화: **기상 알람(`finalAlarmTime`) / 날씨 보정 / 혼잡도 보정** 카드 + 노선번호(새로고침 행) 표시 (`fallbackUsed: false`일 때만)
 - "출발" / "도착 확인" 버튼 → `dailyPlan.departedAt` / `arrivedAt` / `actualTravelMinutes` 저장
-- 앱 재시작 시 `_departed` 상태 Firestore에서 복원
+- 도착 확인 후 **"도착 완료" 비활성** 처리 (중복 `arrivalLogs`/`arrivedAt` 차단)
+- 앱 재시작 시 `_departed` / `_arrived` 상태 Firestore에서 복원
+- **준비 타이머 영속화**: 시작 시각 SharedPreferences 저장 → 재시작 복원, 출발 시 종료
+- 로컬 폴백 dailyPlan을 `{planDate}_{scheduleId}` **고정 ID**로 생성(백엔드 규칙 일치, 중복 방지)
+- 출발/도착 업데이트를 **로드된 실제 `dailyPlanId`** 로 수행 (레거시 랜덤 ID/백엔드 ID 모두 대응)
 - `arrivalLogs` 보안 규칙 추가 및 배포 완료
 
 **미완성 (Flutter)**
 - 캘린더 화면 출결 데이터 Mock → Firestore 실연동
-- `resultStatus` (`ON_TIME`/`LATE`) 계산 및 저장
-- 준비 타이머 UI
+- `resultStatus` (`ON_TIME`/`LATE`) 계산 및 저장 (수동 도착 경로부터 가능)
 
 **미완성 (백엔드·협의 필요)**
 - FCM 푸시 알림 (`finalAlarmTime` 기준)
@@ -202,25 +205,32 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 ### 구현 완료
 | 필드 | 상태 |
 |------|------|
-| `weatherType` | 홈 화면 아이콘으로 표시 (비/눈/맑음) |
-| `congestionAdjustMinutes` | 홈 화면 `혼잡 +N분`으로 표시 |
-| `weatherAdjustMinutes` | 홈 화면 `날씨 +N분`으로 표시 |
-| `selectedRouteNo` | 홈 화면 `N번 기준`으로 표시 |
-| `fallbackUsed` | `false`일 때만 상세 표시, `true`면 "실시간 경로 계산하기" 표시 |
-| `departedAt` / `arrivedAt` | 출발/도착 확인 버튼으로 저장, 앱 재시작 시 복원 |
+| `finalAlarmTime` | 홈 화면 **기상 알람 카드**로 시각 표시 (FCM 발송은 없음) |
+| `weatherType` / `weatherAdjustMinutes` | 홈 화면 **날씨 카드** (맑음/비/눈 + `+N분`) |
+| `congestionAdjustMinutes` | 홈 화면 **혼잡도 보정 카드** (`+N분`) |
+| `selectedRouteNo` | 홈 화면 새로고침 행에 `N번 기준` 표시 |
+| `fallbackUsed` | `false`일 때만 카드 표시, `true`면 "실시간 경로 계산하기" 표시 |
+| `departedAt` / `arrivedAt` | 출발/도착 버튼 저장, 앱 재시작 시 `_departed`/`_arrived` 복원, 도착 후 버튼 비활성 |
 | `actualTravelMinutes` | 도착 확인 시 `arrivedAt - departedAt` 자동 계산 저장 |
 
 ### 미구현 (Flutter)
 | 필드 | 상태 |
 |------|------|
 | `resultStatus` | `ON_TIME`/`LATE` 판단 로직 미구현 |
-| `finalAlarmTime` | 읽지만 FCM 알람 발송 없음 |
+| `finalAlarmTime` | 카드로 표시는 하나 FCM 알람 발송 없음 |
 | `alarmDismissedAt` | 미구현 |
 | Wi-Fi 자동 감지 | `homeWifiSsids`/`schoolWifiSsids` 저장만, 감지 로직 없음 |
 
 ### 설계 의도 vs 현재 구현
 - `departedAt` / `arrivedAt`: 설계는 Wi-Fi 자동 감지 기반, 현재는 버튼 수동 저장
 - 아침 자동 실행(`createDailyPlansAtDawn`): 스케줄러 배포됨, Flutter는 수동 트리거 병행
+
+### `generateDailyPlan` 500 / 칩(카드) 미표시 트러블슈팅 (2026-06-01 확인)
+- **증상**: `generateDailyPlan`이 500(`주소 검색 결과 없음`) → Flutter는 로컬 폴백(`fallbackUsed:true`)으로 대체 → 카드 미표시.
+- **원인**: 스케줄에 좌표 캐시(`startLat` 등)가 없으면 백엔드가 매번 Kakao **주소검색(address.json)** 으로 재지오코딩하는데, 이 호출이 **일시적으로 0건**을 반환할 때가 있음. 주소·키 문제 아님(동일 키로 직접 호출 시 정상 변환됨). 한 번 성공하면 좌표가 캐시되어 이후엔 지오코딩을 건너뛰어 안정적.
+- **`fallbackUsed` 판정**: 출발지 격자(`startNx`/`startNy`)가 없으면 날씨 단계에서 `fallbackUsed=true`가 됨([dailyPlanCalculator.ts](functions/src/services/dailyPlanCalculator.ts)). 좌표만 있고 격자가 없으면 경로/혼잡은 나와도 `fallbackUsed:true`라 카드가 숨겨짐.
+- **참고**: Flutter는 Kakao **keyword.json**(장소검색)으로 좌표를 이미 받지만 `ScheduleEntry.toMap()`이 좌표를 보내지 않아(커밋 `877e622`) 백엔드가 재지오코딩함.
+- **강건화(백엔드, 협의)**: `getAddress`가 0건일 때 재시도 또는 keyword.json 폴백.
 
 ## 개발 환경
 
