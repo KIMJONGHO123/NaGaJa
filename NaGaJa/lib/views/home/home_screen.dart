@@ -113,23 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return _Status.lateRisk;
   }
 
-  Color get _statusColor {
-    // DailyPlan의 displayColor 우선 사용
-    final plan = _activePlan;
-    if (plan != null) {
-      return switch (plan.displayColor) {
-        'GREEN'  => const Color(0xFF4CAF50),
-        'YELLOW' => const Color(0xFFFF9800),
-        'RED'    => const Color(0xFFF44336),
-        _        => const Color(0xFF4CAF50),
-      };
-    }
-    return switch (_status) {
-      _Status.free     => const Color(0xFF4CAF50),
-      _Status.goNow    => const Color(0xFFFF9800),
-      _Status.lateRisk => const Color(0xFFF44336),
-    };
-  }
+  Color get _statusColor => switch (_status) {
+    _Status.free     => const Color(0xFF4CAF50),
+    _Status.goNow    => const Color(0xFFFF9800),
+    _Status.lateRisk => const Color(0xFFF44336),
+  };
 
   String _fmt(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
