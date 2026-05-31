@@ -69,6 +69,28 @@ function assertTimeCalculations() {
   assert.equal(planTime.toDisplayColor(-5), "RED");
 }
 
+function assertDocumentExampleCalculations() {
+  const initial = planTime.calculateInitialPlanTimes({
+    planDate: "2026-05-30",
+    targetArrivalTime: "09:00",
+    defaultTravelMinutes: 30,
+    prepMinutes: 20,
+  });
+
+  assert.equal(toKstIso(initial.baseDepartureAt), "2026-05-29T23:30:00.000Z");
+  assert.equal(toKstIso(initial.baseAlarmAt), "2026-05-29T23:10:00.000Z");
+  assert.equal(toKstIso(initial.calculationAt), "2026-05-29T22:40:00.000Z");
+
+  const final = planTime.calculateFinalPlanTimes({
+    targetArrivalAt: initial.targetArrivalAt,
+    predictedTravelMinutes: 45,
+    prepMinutes: 20,
+  });
+
+  assert.equal(toKstIso(final.finalDepartureAt), "2026-05-29T23:15:00.000Z");
+  assert.equal(toKstIso(final.finalAlarmAt), "2026-05-29T22:55:00.000Z");
+}
+
 function assertTimeSlotConversions() {
   const atKst = (hhmm) => new Date(`2026-05-29T${hhmm}:00.000Z`);
   const kstDate = (planDate, time) =>
@@ -421,6 +443,7 @@ async function assertSelectedBusRouteNoIsPersisted() {
 
 async function main() {
   assertTimeCalculations();
+  assertDocumentExampleCalculations();
   assertTimeSlotConversions();
   assertWeatherAdjustments();
   assertRouteSelection();

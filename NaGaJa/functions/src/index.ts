@@ -12,6 +12,7 @@ import * as admin from "firebase-admin";
 import { defineString } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { onRequest,Request } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Response } from "firebase-functions";
 
 const weatherServiceKey = defineString("WEATHER_SERVICE_KEY");
@@ -20,6 +21,10 @@ const weatherServiceKey = defineString("WEATHER_SERVICE_KEY");
 import { createMockUsers } from "./services/userService";
 import { createMockSchedules } from "./services/scheduleService";
 import { runFullDailyPlanPipeline } from "./services/dailyPlanPipeline";
+import {
+  calculateDuePendingDailyPlans,
+  createPendingDailyPlansForToday,
+} from "./services/schedulerService";
 
 
 // 1. 대중교통 조회
@@ -309,3 +314,35 @@ export const generateDailyPlan = onRequest(async (req: Request, res: Response) =
     });
   }
 });
+
+// ======================================================
+// 기능 7: 매일 04:00 KST dailyPlan PENDING 생성
+// ======================================================
+
+export const createDailyPlansAtDawn = onSchedule(
+  {
+    schedule: "0 4 * * *",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const summary = await createPendingDailyPlansForToday();
+    console.log("createDailyPlansAtDawn summary", summary);
+  },
+);
+
+// ======================================================
+// 기능 8: 10분마다 due PENDING dailyPlan 최종 계산
+// ======================================================
+
+export const calculatePendingDailyPlans = onSchedule(
+  {
+    schedule: "every 10 minutes",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const summary = await calculateDuePendingDailyPlans({
+      weatherServiceKey: weatherServiceKey.value(),
+    });
+    console.log("calculatePendingDailyPlans summary", summary);
+  },
+);
