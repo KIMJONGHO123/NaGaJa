@@ -177,6 +177,7 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 
 **미완성 (Flutter)**
 - 캘린더 자동 새로고침: `IndexedStack`으로 시작 시 1회 로드 → 도착 직후 반영은 새로고침 버튼 필요 (탭 포커스 시 자동 reload 개선 여지)
+- **기상 알람 실제 동작**: 현재 홈 카드는 `finalAlarmTime` **표시만** 함(알람 안 울림). `flutter_local_notifications`로 `finalAlarmTime`에 로컬 알림 예약 시 백엔드 없이 구현 가능 (권한·정확알람 `SCHEDULE_EXACT_ALARM` 필요). 서버 푸시가 필요하면 FCM(백엔드)로. → **나중에 진행 예정**
 
 **미완성 (백엔드·협의 필요)**
 - FCM 푸시 알림 (`finalAlarmTime` 기준)
@@ -225,7 +226,7 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 ### 미구현 (Flutter)
 | 필드 | 상태 |
 |------|------|
-| `finalAlarmTime` | 카드로 표시는 하나 FCM 알람 발송 없음 |
+| `finalAlarmTime` | 홈 기상 알람 카드로 **표시만** (실제 알람 미발생) — 로컬 알림/FCM 미구현, 나중에 진행 |
 | `alarmDismissedAt` | 미구현 |
 | Wi-Fi 자동 감지 | `homeWifiSsids`/`schoolWifiSsids` 저장만, 감지 로직 없음 |
 
