@@ -40,6 +40,7 @@ dependencies:
   shared_preferences: ^2.5.5
   cloud_firestore: ^6.4.1
   http: ^1.2.2
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:
@@ -62,6 +63,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/audio/silence.mp3
 
   # To add assets to your application, add an assets section, like this:
   # assets:
