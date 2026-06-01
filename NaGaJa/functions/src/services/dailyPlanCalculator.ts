@@ -200,43 +200,53 @@ export const calculateAndUpsertDailyPlan = async (
   let startNx = schedule.startNx;
   let startNy = schedule.startNy;
 
-  if (
-    startLat === undefined ||
-    startLng === undefined ||
-    endLat === undefined ||
-    endLng === undefined
-  ) {
-    const startCoords = await getAddress(schedule.startAddress);
-    const endCoords = await getAddress(schedule.destinationAddress);
-    trace("geocoding", {
-      startAddress: schedule.startAddress,
-      endAddress: schedule.destinationAddress,
-    });
-    const startGrid = convertToGrid(
-      Number(startCoords.latitude),
-      Number(startCoords.longitude),
-    );
-    const endGrid = convertToGrid(
-      Number(endCoords.latitude),
-      Number(endCoords.longitude),
-    );
+  const scheduleCoordUpdate: Record<string, unknown> = {};
+  let shouldUpdateScheduleCoords = false;
+  const needsStartCoords = startLat == null || startLng == null;
+  const needsEndCoords = endLat == null || endLng == null;
 
+  if (needsStartCoords) {
+    const startCoords = await getAddress(schedule.startAddress);
     startLat = Number(startCoords.latitude);
     startLng = Number(startCoords.longitude);
+    scheduleCoordUpdate.startLat = startLat;
+    scheduleCoordUpdate.startLng = startLng;
+    shouldUpdateScheduleCoords = true;
+    trace("geocoding", { startAddress: schedule.startAddress });
+  }
+
+  if (needsEndCoords) {
+    const endCoords = await getAddress(schedule.destinationAddress);
     endLat = Number(endCoords.latitude);
     endLng = Number(endCoords.longitude);
+    scheduleCoordUpdate.endLat = endLat;
+    scheduleCoordUpdate.endLng = endLng;
+    shouldUpdateScheduleCoords = true;
+    trace("geocoding", { endAddress: schedule.destinationAddress });
+  }
+
+  if (startLat != null && startLng != null) {
+    const startGrid = convertToGrid(Number(startLat), Number(startLng));
+
+    if (
+      needsStartCoords ||
+      startNx == null ||
+      startNy == null ||
+      startNx !== startGrid.nx ||
+      startNy !== startGrid.ny
+    ) {
+      scheduleCoordUpdate.startNx = startGrid.nx;
+      scheduleCoordUpdate.startNy = startGrid.ny;
+      shouldUpdateScheduleCoords = true;
+    }
+
     startNx = startGrid.nx;
     startNy = startGrid.ny;
+  }
 
+  if (shouldUpdateScheduleCoords) {
     await scheduleRef.update({
-      startLat,
-      startLng,
-      startNx,
-      startNy,
-      endLat,
-      endLng,
-      endNx: endGrid.nx,
-      endNy: endGrid.ny,
+      ...scheduleCoordUpdate,
       updatedAt: Timestamp.now(),
     });
     trace("schedule_update_coords", { scheduleId: input.scheduleId });
@@ -256,7 +266,7 @@ export const calculateAndUpsertDailyPlan = async (
     schedule.transportMode.toUpperCase().includes("BUS");
 
   let weatherItems: ReturnType<typeof extractWeatherForecastItems> = [];
-  if (startNx !== undefined && startNy !== undefined) {
+  if (startNx != null && startNy != null) {
     try {
       // Weather API is called once at the planned calculation time.
       const weatherQueryAt = initialTimes.calculationAt;
@@ -291,10 +301,10 @@ export const calculateAndUpsertDailyPlan = async (
   const congestionLogs: Record<string, unknown>[] = [];
 
   if (
-    startLat !== undefined &&
-    startLng !== undefined &&
-    endLat !== undefined &&
-    endLng !== undefined
+    startLat != null &&
+    startLng != null &&
+    endLat != null &&
+    endLng != null
   ) {
     try {
       const transitResponse = await getTransitRoutes(

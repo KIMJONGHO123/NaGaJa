@@ -13,10 +13,12 @@ const require = createRequire(import.meta.url);
 
 const planTime = require("../lib/utils/planTime.utils.js");
 const timeChange = require("../lib/weather/utils/time-change.utils.js");
+const geocodingService = require("../lib/weather/geocoding.service.js");
 const weatherMapper = require("../lib/weather/weather.mapper.js");
 const weatherService = require("../lib/weather/weather.service.js");
 const weatherExtract = require("../lib/weather/weather.extract.js");
 const transitService = require("../lib/weather/transit/transit.service.js");
+const gridUtils = require("../lib/weather/utils/grid.utils.js");
 const calculator = require("../lib/services/dailyPlanCalculator.js");
 
 const toKstIso = (date) => date.toISOString();
@@ -219,9 +221,10 @@ function assertWeatherDetailFallbackPolicy() {
   );
 }
 
-function createFakeDb() {
+function createFakeDb(overrides = {}) {
   const Timestamp = admin.firestore.Timestamp;
   const writes = [];
+  const scheduleUpdates = [];
 
   const userData = {
     prepMinutes: 30,
@@ -245,6 +248,7 @@ function createFakeDb() {
     endLng: 129.2,
     endNx: 99,
     endNy: 77,
+    ...overrides.scheduleData,
   };
 
   const dailyPlansRef = {
@@ -269,7 +273,9 @@ function createFakeDb() {
         exists: true,
         data: () => scheduleData,
       }),
-      update: async () => undefined,
+      update: async (data) => {
+        scheduleUpdates.push(data);
+      },
     }),
   };
 
@@ -298,7 +304,7 @@ function createFakeDb() {
     },
   };
 
-  return { db, writes, Timestamp };
+  return { db, writes, scheduleUpdates, Timestamp };
 }
 
 async function assertFallbackAndWeatherQueryBasis() {
@@ -441,6 +447,170 @@ async function assertSelectedBusRouteNoIsPersisted() {
   }
 }
 
+async function assertStartGridIsRefreshedWithoutGeocoding() {
+  const startLat = 35.1;
+  const startLng = 129.1;
+  const expectedGrid = gridUtils.convertToGrid(startLat, startLng);
+  const { db, writes, scheduleUpdates, Timestamp } = createFakeDb({
+    scheduleData: {
+      startLat,
+      startLng,
+      startNx: expectedGrid.nx + 1,
+      startNy: expectedGrid.ny,
+      endLat: 35.2,
+      endLng: 129.2,
+    },
+  });
+  const originalFirestoreDescriptor = Object.getOwnPropertyDescriptor(
+    admin,
+    "firestore",
+  );
+  const originalGetAddress = geocodingService.getAddress;
+  const originalGetWeather = weatherService.getWeather;
+  const originalExtractWeatherForecastItems = weatherExtract.extractWeatherForecastItems;
+  const originalGetTransitRoutes = transitService.getTransitRoutes;
+  const originalWarn = console.warn;
+
+  Object.defineProperty(admin, "firestore", {
+    value: Object.assign(() => db, { Timestamp }),
+    configurable: true,
+  });
+  geocodingService.getAddress = async () => {
+    throw new Error("geocoding should not be called when lat/lng already exist");
+  };
+  weatherService.getWeather = async () => ({});
+  weatherExtract.extractWeatherForecastItems = () => [
+    {
+      baseDate: "20260530",
+      baseTime: "0500",
+      category: "PTY",
+      fcstDate: "20260530",
+      fcstTime: "0800",
+      fcstValue: "0",
+      nx: expectedGrid.nx,
+      ny: expectedGrid.ny,
+    },
+  ];
+  transitService.getTransitRoutes = async () => {
+    throw new Error("forced transit failure");
+  };
+  console.warn = () => undefined;
+
+  try {
+    await calculator.calculateAndUpsertDailyPlan({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      planDate: "2026-05-30",
+      weatherServiceKey: "test-key",
+    });
+
+    assert.equal(writes.length, 1);
+    assert.equal(scheduleUpdates.length, 1);
+    assert.equal(scheduleUpdates[0].startNx, expectedGrid.nx);
+    assert.equal(scheduleUpdates[0].startNy, expectedGrid.ny);
+    assert.equal("endNx" in scheduleUpdates[0], false);
+    assert.equal("endNy" in scheduleUpdates[0], false);
+  } finally {
+    if (originalFirestoreDescriptor) {
+      Object.defineProperty(admin, "firestore", originalFirestoreDescriptor);
+    } else {
+      delete admin.firestore;
+    }
+    geocodingService.getAddress = originalGetAddress;
+    weatherService.getWeather = originalGetWeather;
+    weatherExtract.extractWeatherForecastItems = originalExtractWeatherForecastItems;
+    transitService.getTransitRoutes = originalGetTransitRoutes;
+    console.warn = originalWarn;
+  }
+}
+
+async function assertMissingCoordsAreGeocodedIndependently() {
+  const { db, writes, scheduleUpdates, Timestamp } = createFakeDb({
+    scheduleData: {
+      startLat: null,
+      startLng: 129.1,
+      startNx: 98,
+      startNy: 76,
+      endLat: 35.2,
+      endLng: 129.2,
+    },
+  });
+  const originalFirestoreDescriptor = Object.getOwnPropertyDescriptor(
+    admin,
+    "firestore",
+  );
+  const originalGetAddress = geocodingService.getAddress;
+  const originalGetWeather = weatherService.getWeather;
+  const originalExtractWeatherForecastItems = weatherExtract.extractWeatherForecastItems;
+  const originalGetTransitRoutes = transitService.getTransitRoutes;
+  const originalWarn = console.warn;
+  const geocodingCalls = [];
+  const geocodedStart = { latitude: "35.3", longitude: "129.3" };
+  const expectedGrid = gridUtils.convertToGrid(
+    Number(geocodedStart.latitude),
+    Number(geocodedStart.longitude),
+  );
+
+  Object.defineProperty(admin, "firestore", {
+    value: Object.assign(() => db, { Timestamp }),
+    configurable: true,
+  });
+  geocodingService.getAddress = async (address) => {
+    geocodingCalls.push(address);
+    assert.equal(address, "Start address");
+    return geocodedStart;
+  };
+  weatherService.getWeather = async () => ({});
+  weatherExtract.extractWeatherForecastItems = () => [
+    {
+      baseDate: "20260530",
+      baseTime: "0500",
+      category: "PTY",
+      fcstDate: "20260530",
+      fcstTime: "0800",
+      fcstValue: "0",
+      nx: expectedGrid.nx,
+      ny: expectedGrid.ny,
+    },
+  ];
+  transitService.getTransitRoutes = async () => {
+    throw new Error("forced transit failure");
+  };
+  console.warn = () => undefined;
+
+  try {
+    await calculator.calculateAndUpsertDailyPlan({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      planDate: "2026-05-30",
+      weatherServiceKey: "test-key",
+    });
+
+    assert.deepEqual(geocodingCalls, ["Start address"]);
+    assert.equal(writes.length, 1);
+    assert.equal(scheduleUpdates.length, 1);
+    assert.equal(scheduleUpdates[0].startLat, 35.3);
+    assert.equal(scheduleUpdates[0].startLng, 129.3);
+    assert.equal(scheduleUpdates[0].startNx, expectedGrid.nx);
+    assert.equal(scheduleUpdates[0].startNy, expectedGrid.ny);
+    assert.equal("endLat" in scheduleUpdates[0], false);
+    assert.equal("endLng" in scheduleUpdates[0], false);
+    assert.equal("endNx" in scheduleUpdates[0], false);
+    assert.equal("endNy" in scheduleUpdates[0], false);
+  } finally {
+    if (originalFirestoreDescriptor) {
+      Object.defineProperty(admin, "firestore", originalFirestoreDescriptor);
+    } else {
+      delete admin.firestore;
+    }
+    geocodingService.getAddress = originalGetAddress;
+    weatherService.getWeather = originalGetWeather;
+    weatherExtract.extractWeatherForecastItems = originalExtractWeatherForecastItems;
+    transitService.getTransitRoutes = originalGetTransitRoutes;
+    console.warn = originalWarn;
+  }
+}
+
 async function main() {
   assertTimeCalculations();
   assertDocumentExampleCalculations();
@@ -450,6 +620,8 @@ async function main() {
   assertWeatherDetailFallbackPolicy();
   await assertFallbackAndWeatherQueryBasis();
   await assertSelectedBusRouteNoIsPersisted();
+  await assertStartGridIsRefreshedWithoutGeocoding();
+  await assertMissingCoordsAreGeocodedIndependently();
 
   console.log("Alarm calculation logic regression OK");
 }
