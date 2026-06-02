@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
+import 'services/background_audio_service.dart';
 import 'services/daily_plan_service.dart';
 import 'services/settings_service.dart';
 import 'views/auth/login_screen.dart';
@@ -14,8 +15,45 @@ Future<void> main() async {
   runApp(const NagajaApp());
 }
 
-class NagajaApp extends StatelessWidget {
+class NagajaApp extends StatefulWidget {
   const NagajaApp({super.key});
+
+  @override
+  State<NagajaApp> createState() => _NagajaAppState();
+}
+
+class _NagajaAppState extends State<NagajaApp> with WidgetsBindingObserver {
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    BackgroundAudioService.instance.stop();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+        BackgroundAudioService.instance.start();
+        break;
+      case AppLifecycleState.resumed:
+        BackgroundAudioService.instance.stop();
+        break;
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        BackgroundAudioService.instance.stop();
+        break;
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
