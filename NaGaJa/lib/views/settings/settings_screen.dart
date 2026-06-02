@@ -321,10 +321,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onAdd: () => _registerWifi(isHome: false),
               onRemove: (s) => _removeWifi(isHome: false, ssid: s),
             ),
+            const Divider(height: 24),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _enableBackgroundDetection,
+                icon: const Icon(Icons.dark_mode_outlined, size: 18),
+                label: const Text("앱을 내려도 감지 (위치 '항상 허용')"),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _enableBackgroundDetection() async {
+    final ok =
+        await WifiAttendanceService.instance.ensureBackgroundLocationPermission();
+    _snack(ok
+        ? '백그라운드 감지 활성화됨 (위치 항상 허용). 앱을 내려도 자동 출결이 동작합니다.'
+        : "위치를 '항상 허용'으로 설정하면 앱을 내려도 자동 출결이 됩니다. (설정에서 변경)");
   }
 
   Widget _wifiGroup({

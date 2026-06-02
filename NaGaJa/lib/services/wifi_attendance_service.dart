@@ -74,6 +74,16 @@ class WifiAttendanceService extends ChangeNotifier {
     return status.isGranted;
   }
 
+  /// 백그라운드(앱 내림) 상태에서도 SSID를 읽기 위한 '항상 허용' 위치 권한 요청 (3-a).
+  /// 선행 조건으로 전경 위치 권한이 먼저 허용돼야 한다. Android 11+는 OS가 설정 화면으로
+  /// 유도하므로 즉시 허용되지 않을 수 있다(사용자가 "항상 허용" 선택 필요).
+  /// 허용 실패해도 전경(앱 켜진 상태) 감지에는 영향 없음.
+  Future<bool> ensureBackgroundLocationPermission() async {
+    if (!await ensureLocationPermission()) return false;
+    final status = await Permission.locationAlways.request();
+    return status.isGranted;
+  }
+
   /// 현재 연결된 Wi-Fi SSID. 권한/위치서비스/Wi-Fi 미연결 시 null.
   Future<String?> currentSsid() async {
     try {
