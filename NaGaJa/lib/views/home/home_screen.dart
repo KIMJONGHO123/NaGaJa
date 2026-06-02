@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../services/alarm_service.dart';
 import '../../services/daily_plan_service.dart';
 import '../../services/settings_service.dart';
 import '../late_response/late_response_screen.dart';
@@ -64,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await SettingsService.instance.load();
     _recomputeNextClass();
     await DailyPlanService.instance.loadTodayPlans();
+    _scheduleAlarmIfNeeded();
     _restoreDepartedState();
     _prepStartedAt = await SettingsService.instance.loadPrepStartedAt();
     if (mounted) setState(() => _loading = false);
@@ -99,8 +101,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (mounted) {
       _recomputeNextClass();
+      _scheduleAlarmIfNeeded();
       setState(() => _planRefreshing = false);
     }
+  }
+
+  void _scheduleAlarmIfNeeded() {
+    final plan = _activePlan;
+    if (plan == null) return;
+    AlarmService.instance.scheduleAlarm(plan.finalAlarmTime);
   }
 
   void _recomputeNextClass() {
@@ -180,11 +189,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
+        child: Column(
+          children: [
+            if (AlarmService.instance.isAlarmFired) _alarmDismissBanner(),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 20),
               _buildClock(),
               const SizedBox(height: 16),
               CircularGauge(
@@ -218,6 +231,48 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
+            ],
+        ),
+      ),
+    );
+  }
+
+  Widget _alarmDismissBanner() {
+    return Container(
+      color: Colors.red,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        children: [
+          const Icon(Icons.alarm_on, color: Colors.white, size: 24),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              '기상 알람!',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              AlarmService.instance.dismissAlarm();
+              setState(() {});
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            child: const Text(
+              '알람 해제',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -337,27 +392,47 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _alarmCard(DailyPlanModel plan) {
+    final fired = AlarmService.instance.isAlarmFired;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8F0FE),
+        color: fired ? const Color(0xFFFFEBEE) : const Color(0xFFE8F0FE),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          const Icon(Icons.notifications_active,
-              size: 20, color: Color(0xFFFBBC04)),
+          Icon(
+            fired ? Icons.alarm_on : Icons.notifications_active,
+            size: 20,
+            color: fired ? Colors.red : const Color(0xFFFBBC04),
+          ),
           const SizedBox(width: 10),
           Text('기상 알람',
               style: TextStyle(fontSize: 14, color: Colors.grey[700])),
           const Spacer(),
-          Text(
-            _fmt(plan.finalAlarmTime),
-            style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1A73E8)),
-          ),
+          if (fired)
+            TextButton(
+              onPressed: () {
+                AlarmService.instance.dismissAlarm();
+                setState(() {});
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(48, 32),
+              ),
+              child: const Text('해제',
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+            )
+          else
+            Text(
+              _fmt(plan.finalAlarmTime),
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A73E8)),
+            ),
         ],
       ),
     );

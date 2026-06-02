@@ -3,6 +3,8 @@ package com.example.nagaja
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -12,14 +14,17 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channel = "com.nagaja.app/background_audio"
+    private var alarmRingtone: Ringtone? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "startService" -> { startSilent(); result.success(null) }
-                    "stopService"  -> { stopSilent(); result.success(null) }
+                    "startService"      -> { startSilent(); result.success(null) }
+                    "stopService"       -> { stopSilent(); result.success(null) }
+                    "playAlarmSound"    -> { playAlarmSound(); result.success(null) }
+                    "stopAlarmSound"    -> { stopAlarmSound(); result.success(null) }
                     else -> result.notImplemented()
                 }
             }
@@ -49,5 +54,18 @@ class MainActivity : FlutterActivity() {
 
     private fun stopSilent() {
         stopService(Intent(this, SilentAudioForegroundService::class.java))
+    }
+
+    // RingtoneManager로 기기 기본 알람음 재생 (content:// URI 지원)
+    private fun playAlarmSound() {
+        stopAlarmSound()
+        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        alarmRingtone = RingtoneManager.getRingtone(applicationContext, uri)
+        alarmRingtone?.play()
+    }
+
+    private fun stopAlarmSound() {
+        alarmRingtone?.stop()
+        alarmRingtone = null
     }
 }

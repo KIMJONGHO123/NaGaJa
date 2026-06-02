@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
+import 'services/alarm_service.dart';
 import 'services/background_audio_service.dart';
 import 'services/daily_plan_service.dart';
 import 'services/settings_service.dart';
@@ -12,6 +13,7 @@ import 'views/onboarding/onboarding_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await AlarmService.instance.initialize();
   runApp(const NagajaApp());
 }
 
@@ -28,11 +30,13 @@ class _NagajaAppState extends State<NagajaApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AlarmService.instance.startChecking(); // 포그라운드/백그라운드 모두 체크
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AlarmService.instance.stopChecking();
     BackgroundAudioService.instance.stop();
     super.dispose();
   }
