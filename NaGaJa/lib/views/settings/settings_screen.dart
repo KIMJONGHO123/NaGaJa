@@ -4,6 +4,7 @@ import '../../models/user_model.dart';
 import '../../services/daily_plan_service.dart';
 import '../../services/kakao_address_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/wifi_attendance_service.dart';
 import '../widgets/address_search_field.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -82,6 +83,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           _header('개인 설정'),
           _buildPrepTimeCard(),
+          const SizedBox(height: 16),
+          _header('Wi-Fi 출결'),
+          _buildWifiCard(),
           const SizedBox(height: 16),
           _header('기기 연결'),
           _buildDeviceCard(),
@@ -284,6 +288,143 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  // ── Wi-Fi 출결 ───────────────────────────────────────────────────────────────
+  Widget _buildWifiCard() {
+    final user = SettingsService.instance.userModel;
+    final home = user?.homeWifiSsids ?? const [];
+    final school = user?.schoolWifiSsids ?? const [];
+    return _card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '집 Wi-Fi가 끊기면 자동 출발, 학교 Wi-Fi에 연결되면 자동 도착으로 기록됩니다.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            _wifiGroup(
+              icon: Icons.home,
+              label: '집 Wi-Fi',
+              ssids: home,
+              onAdd: () => _registerWifi(isHome: true),
+              onRemove: (s) => _removeWifi(isHome: true, ssid: s),
+            ),
+            const Divider(height: 24),
+            _wifiGroup(
+              icon: Icons.school,
+              label: '학교 Wi-Fi',
+              ssids: school,
+              onAdd: () => _registerWifi(isHome: false),
+              onRemove: (s) => _removeWifi(isHome: false, ssid: s),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _wifiGroup({
+    required IconData icon,
+    required String label,
+    required List<String> ssids,
+    required VoidCallback onAdd,
+    required void Function(String) onRemove,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: Colors.blue),
+            const SizedBox(width: 8),
+            Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('현재 Wi-Fi 등록'),
+            ),
+          ],
+        ),
+        if (ssids.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text('등록된 Wi-Fi 없음',
+                style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: ssids
+                .map((s) => Chip(
+                      label: Text(s),
+                      onDeleted: () => onRemove(s),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                    ))
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _registerWifi({required bool isHome}) async {
+    final wifi = WifiAttendanceService.instance;
+    final granted = await wifi.ensureLocationPermission();
+    if (!granted) {
+      _snack('위치 권한이 필요합니다. (현재 Wi-Fi 이름 확인용)');
+      return;
+    }
+    final ssid = await wifi.currentSsid();
+    if (ssid == null) {
+      _snack('현재 Wi-Fi를 확인할 수 없습니다. Wi-Fi 연결과 위치 서비스를 확인해주세요.');
+      return;
+    }
+    final svc = SettingsService.instance;
+    final user = svc.userModel;
+    final home = List<String>.from(user?.homeWifiSsids ?? const []);
+    final school = List<String>.from(user?.schoolWifiSsids ?? const []);
+    final target = isHome ? home : school;
+    if (target.contains(ssid)) {
+      _snack('이미 등록된 Wi-Fi입니다: $ssid');
+      return;
+    }
+    target.add(ssid);
+    await svc.saveUserSettings(
+      prepMinutes: _prepMinutes,
+      defaultTravelMinutes: _defaultTravelMinutes,
+      homeWifiSsids: home,
+      schoolWifiSsids: school,
+    );
+    if (mounted) setState(() {});
+    _snack('${isHome ? '집' : '학교'} Wi-Fi로 등록됨: $ssid');
+  }
+
+  Future<void> _removeWifi(
+      {required bool isHome, required String ssid}) async {
+    final svc = SettingsService.instance;
+    final user = svc.userModel;
+    final home = List<String>.from(user?.homeWifiSsids ?? const []);
+    final school = List<String>.from(user?.schoolWifiSsids ?? const []);
+    (isHome ? home : school).remove(ssid);
+    await svc.saveUserSettings(
+      prepMinutes: _prepMinutes,
+      defaultTravelMinutes: _defaultTravelMinutes,
+      homeWifiSsids: home,
+      schoolWifiSsids: school,
+    );
+    if (mounted) setState(() {});
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Widget _buildDeviceCard() {

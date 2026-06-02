@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/alarm_service.dart';
 import '../../services/daily_plan_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/wifi_attendance_service.dart';
 import '../late_response/late_response_screen.dart';
 import 'circular_gauge.dart';
 
@@ -58,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _now = DateTime.now());
     });
     SettingsService.instance.addListener(_onSettingsChanged);
+    WifiAttendanceService.instance.addListener(_onWifiAttendance);
     _initSettings();
   }
 
@@ -69,6 +71,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _restoreDepartedState();
     _prepStartedAt = await SettingsService.instance.loadPrepStartedAt();
     if (mounted) setState(() => _loading = false);
+    // Wi-Fi 자동 출결 감지 시작 (집 Wi-Fi 끊김=출발 / 학교 Wi-Fi 연결=도착)
+    WifiAttendanceService.instance.start();
+  }
+
+  /// Wi-Fi 감지가 출발/도착을 자동 기록하면 호출 → 플랜 상태를 UI에 반영
+  void _onWifiAttendance() {
+    _restoreDepartedState();
+    if (mounted) setState(() {});
   }
 
   void _restoreDepartedState() {
@@ -128,6 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _clockTimer.cancel();
     SettingsService.instance.removeListener(_onSettingsChanged);
+    WifiAttendanceService.instance.removeListener(_onWifiAttendance);
     super.dispose();
   }
 
