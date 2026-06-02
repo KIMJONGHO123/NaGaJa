@@ -39,7 +39,6 @@ build/
 doc/api/
 
 # Flutter 웹 생성 파일
-lib/generated_plugin_registrant.dart
 
 # Coverage
 coverage/
