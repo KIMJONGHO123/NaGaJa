@@ -28,9 +28,12 @@ class WifiAttendanceService extends ChangeNotifier {
   Timer? _debounce;
   Timer? _poll;
   bool _running = false;
+  bool _checking = false; // _check 재진입 방지 (폴링·이벤트 동시 실행 시 중복 기록 차단)
 
-  /// 집 Wi-Fi에 접속한 적이 있는지 (출발 오탐 방지: 집을 본 적 없으면 출발로 보지 않음)
+  /// 집 Wi-Fi에 접속한 적이 있는지 (출발 오탐 방지: 집을 본 적 없으면 출발로 보지 않음).
+  /// 앱이 백그라운드로 상시 생존하므로 날짜가 바뀌면 리셋한다(_seenHomeDate).
   bool _seenHomeWifi = false;
+  DateTime? _seenHomeDate;
 
   /// SSID 변화가 깜빡일 때 오작동 방지용 디바운스 시간.
   static const Duration _debounceDuration = Duration(seconds: 20);
@@ -92,61 +95,87 @@ class WifiAttendanceService extends ChangeNotifier {
   }
 
   // ── 감지 본체 ──────────────────────────────────────────────────────────────
+  // 한계(D): todayNextSchedule은 classTime이 아직 안 지난 수업만 반환하므로,
+  // 수업 시작 후(지각) 도착은 그 수업에 자동으로 붙지 않을 수 있다.
+  // 앱 전반이 todayNextSchedule에 의존하는 구조라 별도 개선 과제로 둔다.
   Future<void> _check() async {
-    if (!_running) return;
-    final svc = SettingsService.instance;
-    final user = svc.userModel;
-    if (user == null) return;
+    if (!_running || _checking) return; // (C) 재진입 방지
+    _checking = true;
+    try {
+      final svc = SettingsService.instance;
+      final user = svc.userModel;
+      if (user == null) return;
 
-    final home = user.homeWifiSsids;
-    final school = user.schoolWifiSsids;
-    if (home.isEmpty && school.isEmpty) return; // 등록된 SSID 없음
+      final home = user.homeWifiSsids;
+      final school = user.schoolWifiSsids;
+      if (home.isEmpty && school.isEmpty) return; // 등록된 SSID 없음
 
-    final ScheduleEntry? sched = svc.todayNextSchedule;
-    if (sched == null) return;
-    final plan = DailyPlanService.instance.planForSchedule(sched.scheduleId);
-    if (plan == null) return;
+      final ScheduleEntry? sched = svc.todayNextSchedule;
+      if (sched == null) return;
+      final plan = DailyPlanService.instance.planForSchedule(sched.scheduleId);
+      if (plan == null) return;
 
-    final now = DateTime.now();
-    final classStart = _classStart(sched, now);
-    if (classStart == null) return;
+      final now = DateTime.now();
+      final classStart = _classStart(sched, now);
+      if (classStart == null) return;
 
-    // 시간창 가드: 기상 알람 시각 ~ 수업 시작 +2시간 사이에서만 자동 처리
-    final windowStart = plan.finalAlarmTime;
-    final windowEnd = classStart.add(const Duration(hours: 2));
-    if (now.isBefore(windowStart) || now.isAfter(windowEnd)) return;
+      // 시간창 가드: 기상 알람 시각 ~ 수업 시작 +2시간 사이에서만 자동 처리
+      final windowStart = plan.finalAlarmTime;
+      final windowEnd = classStart.add(const Duration(hours: 2));
+      if (now.isBefore(windowStart) || now.isAfter(windowEnd)) return;
 
-    final ssid = await currentSsid();
-    if (ssid != null && home.contains(ssid)) _seenHomeWifi = true;
-
-    // 도착: 학교 Wi-Fi 연결 + 아직 미도착
-    if (plan.arrivedAt == null && ssid != null && school.contains(ssid)) {
-      final resultStatus = now.isAfter(classStart) ? 'LATE' : 'ON_TIME';
-      final dep = plan.departedAt;
-      final actual = dep != null ? now.difference(dep).inMinutes : null;
-      await DailyPlanService.instance.updateArrivedAt(
-        sched.scheduleId,
-        now,
-        actualTravelMinutes: (actual != null && actual > 0) ? actual : null,
-        resultStatus: resultStatus,
-      );
-      await DailyPlanService.instance.loadTodayPlans();
-      if (kDebugMode) {
-        debugPrint('[WifiAttendance] 도착 자동기록 ssid=$ssid status=$resultStatus');
+      // (A) 날짜가 바뀌면 '집 Wi-Fi 본 적' 플래그 리셋 (백그라운드 상시 생존 대비)
+      final today = DateTime(now.year, now.month, now.day);
+      if (_seenHomeDate != today) {
+        _seenHomeDate = today;
+        _seenHomeWifi = false;
       }
-      notifyListeners();
-      return;
-    }
 
-    // 출발: 집 Wi-Fi를 본 적 있고, 지금은 집 Wi-Fi가 아님 + 아직 미출발
-    final leftHome = _seenHomeWifi && (ssid == null || !home.contains(ssid));
-    if (plan.departedAt == null && home.isNotEmpty && leftHome) {
-      await DailyPlanService.instance.updateDepartedAt(sched.scheduleId, now);
-      await DailyPlanService.instance.loadTodayPlans();
-      if (kDebugMode) {
-        debugPrint('[WifiAttendance] 출발 자동기록 (집 Wi-Fi 벗어남)');
+      // (B) 연결 상태와 SSID를 함께 판단:
+      //   - Wi-Fi 연결 중인데 ssid만 null = 읽기 실패 → 출발로 오인하지 않음
+      //   - Wi-Fi 자체가 끊김(mobile/none) = 진짜 집을 떠난 신호
+      final conn = await _connectivity.checkConnectivity();
+      final onWifi = conn.contains(ConnectivityResult.wifi);
+      final ssid = onWifi ? await currentSsid() : null;
+
+      if (onWifi && ssid != null && home.contains(ssid)) _seenHomeWifi = true;
+
+      // 도착: 학교 Wi-Fi 연결 + 아직 미도착
+      if (plan.arrivedAt == null &&
+          onWifi &&
+          ssid != null &&
+          school.contains(ssid)) {
+        final resultStatus = now.isAfter(classStart) ? 'LATE' : 'ON_TIME';
+        final dep = plan.departedAt;
+        final actual = dep != null ? now.difference(dep).inMinutes : null;
+        await DailyPlanService.instance.updateArrivedAt(
+          sched.scheduleId,
+          now,
+          actualTravelMinutes: (actual != null && actual > 0) ? actual : null,
+          resultStatus: resultStatus,
+        );
+        await DailyPlanService.instance.loadTodayPlans();
+        if (kDebugMode) {
+          debugPrint('[WifiAttendance] 도착 자동기록 ssid=$ssid status=$resultStatus');
+        }
+        notifyListeners();
+        return;
       }
-      notifyListeners();
+
+      // 출발: 집 Wi-Fi를 본 적 있고 + 미출발 + 실제로 집을 떠남
+      //   (Wi-Fi 끊김 또는 집이 아닌 다른 Wi-Fi 접속. ssid만 null인 읽기 실패는 제외)
+      final leftHome =
+          _seenHomeWifi && (!onWifi || (ssid != null && !home.contains(ssid)));
+      if (plan.departedAt == null && home.isNotEmpty && leftHome) {
+        await DailyPlanService.instance.updateDepartedAt(sched.scheduleId, now);
+        await DailyPlanService.instance.loadTodayPlans();
+        if (kDebugMode) {
+          debugPrint('[WifiAttendance] 출발 자동기록 (집 Wi-Fi 벗어남)');
+        }
+        notifyListeners();
+      }
+    } finally {
+      _checking = false;
     }
   }
 
