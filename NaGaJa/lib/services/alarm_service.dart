@@ -123,6 +123,39 @@ class AlarmService {
         debugPrint('[AlarmService] playAlarmSound error: $e');
       });
     }
+    _showImmediateNotification();
+  }
+
+  // zonedSchedule은 앱이 완전히 종료됐을 때의 백업.
+  // 앱이 살아있을 때는 여기서 즉시 발사해야 heads-up 팝업으로 표시됨.
+  // playSound: false → 소리는 RingtoneManager가 이미 담당.
+  Future<void> _showImmediateNotification() async {
+    await _plugin.show(
+      _notifId,
+      '기상 알람 🔔',
+      '일어날 시간입니다! 나가자',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          '기상 알람',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: false,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          actions: [
+            AndroidNotificationAction(
+              'dismiss',
+              '알람 해제',
+              cancelNotification: true,
+            ),
+          ],
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: false,
+        ),
+      ),
+    );
   }
 
   // ── 알람 해제 ────────────────────────────────────────────────
