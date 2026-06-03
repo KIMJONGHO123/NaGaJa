@@ -192,20 +192,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   children: [
                     const SizedBox(height: 20),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.alarm),
-                label: const Text('5초 후 알람 테스트'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                onPressed: () {
-                  AlarmService.instance.scheduleAlarm(
-                    DateTime.now().add(const Duration(seconds: 5)),
-                  );
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('5초 후 알람이 울립니다')),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
               _buildClock(),
               const SizedBox(height: 16),
               CircularGauge(
