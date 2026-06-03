@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
-import '../../services/daily_plan_service.dart';
 import '../../services/kakao_address_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/wifi_attendance_service.dart';
@@ -51,7 +50,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       prepMinutes: _prepMinutes,
       defaultTravelMinutes: _defaultTravelMinutes,
     );
-    DailyPlanService.instance.generateDailyPlan();
     if (mounted) {
       ScaffoldMessenger.of(
         context,
@@ -211,7 +209,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       isActive: active,
     );
     await SettingsService.instance.saveSchedule(updated);
-    DailyPlanService.instance.generateDailyPlan();
   }
 
   Future<void> _openScheduleSheet(ScheduleEntry? existing) async {
@@ -580,9 +577,8 @@ class _ScheduleEditSheetState extends State<_ScheduleEditSheet> {
       }
       return;
     }
-    DailyPlanService.instance.generateDailyPlan(
-      scheduleId: entry.scheduleId.isNotEmpty ? entry.scheduleId : null,
-    );
+    // dailyPlan 생성은 백엔드 스케줄러 담당. 저장 시 앱이 생성하지 않음
+    // (미래 요일 플랜을 미리 만들면 그날 데이터가 아니라 박제되는 문제 방지).
     if (mounted) Navigator.pop(context);
   }
 
