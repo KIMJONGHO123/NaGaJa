@@ -86,10 +86,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
                 ),
                 const SizedBox(height: 80),
                 ElevatedButton(
-                  onPressed: () async {
-                    await AlarmService.instance.dismissAlarm();
-                    if (context.mounted) Navigator.of(context).pop();
-                  },
+                  onPressed: () => AlarmService.instance.dismissAlarm(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: const Color(0xFFB71C1C),
