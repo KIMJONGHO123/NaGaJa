@@ -24,6 +24,10 @@ class AlarmService {
   // 알람 발사 상태를 외부(main.dart)에 알려 AlarmScreen으로 navigate하게 함
   final alarmFiredNotifier = ValueNotifier<bool>(false);
 
+  // 앱이 포그라운드인지 여부 — main.dart의 AppLifecycleState에서 갱신
+  bool _appInForeground = true;
+  void setAppInForeground(bool value) => _appInForeground = value;
+
   // ── 초기화 ──────────────────────────────────────────────────
 
   Future<void> initialize() async {
@@ -130,14 +134,18 @@ class AlarmService {
   void _fireAlarm() {
     _fired = true;
     alarmFiredNotifier.value = true;
-    debugPrint('[AlarmService] alarm fired!');
+    debugPrint('[AlarmService] alarm fired! appInForeground=$_appInForeground');
     if (Platform.isAndroid) {
       // RingtoneManager로 기기 기본 알람음 재생 (content:// URI는 MethodChannel로 처리)
       _channel.invokeMethod('playAlarmSound').catchError((e) {
         debugPrint('[AlarmService] playAlarmSound error: $e');
       });
     }
-    _showImmediateNotification();
+    // 앱이 포그라운드면 AlarmScreen으로 직접 전환하므로 알림 배너 불필요.
+    // 백그라운드·화면 OFF일 때만 알림을 띄워 fullScreenIntent로 화면을 깨운다.
+    if (!_appInForeground) {
+      _showImmediateNotification();
+    }
   }
 
   // zonedSchedule은 앱이 완전히 종료됐을 때의 백업.

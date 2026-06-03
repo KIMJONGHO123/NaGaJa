@@ -61,13 +61,16 @@ class _NagajaAppState extends State<NagajaApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.paused:
+        AlarmService.instance.setAppInForeground(false);
         BackgroundAudioService.instance.start();
         break;
       case AppLifecycleState.resumed:
+        AlarmService.instance.setAppInForeground(true);
         BackgroundAudioService.instance.stop();
         break;
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
+        AlarmService.instance.setAppInForeground(false);
         BackgroundAudioService.instance.stop();
         break;
       case AppLifecycleState.inactive:
