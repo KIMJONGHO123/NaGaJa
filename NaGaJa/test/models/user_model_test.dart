@@ -163,8 +163,7 @@ void main() {
     });
 
     test('timeOfDayToString — 2자리 패딩 확인', () {
-      const result = ScheduleEntry.timeOfDayToString;
-      // static 메서드 직접 호출 불가, fromMap으로 간접 확인
+      // static 메서드를 간접적으로 검증: fromMap 후 classTime 문자열 확인
       final entry = ScheduleEntry.fromMap('sch1', {
         ...baseData,
         'classTime': '08:05',

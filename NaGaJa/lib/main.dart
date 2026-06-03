@@ -5,9 +5,13 @@ import 'firebase_options.dart';
 import 'services/alarm_service.dart';
 import 'services/background_audio_service.dart';
 import 'services/settings_service.dart';
+import 'views/alarm/alarm_screen.dart';
 import 'views/auth/login_screen.dart';
 import 'views/main_shell.dart';
 import 'views/onboarding/onboarding_screen.dart';
+
+// 앱 전역 NavigatorKey — AlarmService에서 컨텍스트 없이 AlarmScreen으로 navigate할 때 사용
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,14 +34,27 @@ class _NagajaAppState extends State<NagajaApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AlarmService.instance.startChecking(); // 포그라운드/백그라운드 모두 체크
+    AlarmService.instance.alarmFiredNotifier.addListener(_onAlarmFired);
+    // initialize()가 runApp() 이전에 실행됐을 경우 초기값 체크
+    if (AlarmService.instance.alarmFiredNotifier.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onAlarmFired());
+    }
   }
 
   @override
   void dispose() {
+    AlarmService.instance.alarmFiredNotifier.removeListener(_onAlarmFired);
     WidgetsBinding.instance.removeObserver(this);
     AlarmService.instance.stopChecking();
     BackgroundAudioService.instance.stop();
     super.dispose();
+  }
+
+  void _onAlarmFired() {
+    if (!AlarmService.instance.alarmFiredNotifier.value) return;
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => const AlarmScreen()),
+    );
   }
 
   @override
@@ -61,6 +78,7 @@ class _NagajaAppState extends State<NagajaApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Nagaja',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
