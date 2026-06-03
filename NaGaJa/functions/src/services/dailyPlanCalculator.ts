@@ -607,3 +607,26 @@ export const calculateDailyPlansForUser = async (
 
 export const resolvePlanDate = (planDate?: string): string =>
   planDate ?? formatPlanDateKst(new Date());
+
+export const resolveNextSchedulePlanDate = (
+  now: Date,
+  scheduleDayOfWeek: number,
+): string => {
+  if (scheduleDayOfWeek < 1 || scheduleDayOfWeek > 7) {
+    throw new Error(`Invalid schedule dayOfWeek ${scheduleDayOfWeek}`);
+  }
+
+  const today = formatPlanDateKst(now);
+  const [year, month, day] = today.split("-").map(Number);
+  const todayKstMidnightAsLocal = new Date(year, month - 1, day);
+  const jsDay = todayKstMidnightAsLocal.getDay();
+  const todayDayOfWeek = jsDay === 0 ? 7 : jsDay;
+  const daysUntil = (scheduleDayOfWeek - todayDayOfWeek + 7) % 7;
+  const resolved = new Date(year, month - 1, day + daysUntil);
+
+  return [
+    resolved.getFullYear(),
+    String(resolved.getMonth() + 1).padStart(2, "0"),
+    String(resolved.getDate()).padStart(2, "0"),
+  ].join("-");
+};
