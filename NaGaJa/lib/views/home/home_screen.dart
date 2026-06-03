@@ -186,13 +186,26 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            if (AlarmService.instance.isAlarmFired) _alarmDismissBanner(),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   children: [
                     const SizedBox(height: 20),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.alarm),
+                label: const Text('5초 후 알람 테스트'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                onPressed: () {
+                  AlarmService.instance.scheduleAlarm(
+                    DateTime.now().add(const Duration(seconds: 5)),
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('5초 후 알람이 울립니다')),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
               _buildClock(),
               const SizedBox(height: 16),
               CircularGauge(
@@ -229,45 +242,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
             ],
         ),
-      ),
-    );
-  }
-
-  Widget _alarmDismissBanner() {
-    return Container(
-      color: Colors.red,
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        children: [
-          const Icon(Icons.alarm_on, color: Colors.white, size: 24),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              '기상 알람!',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              AlarmService.instance.dismissAlarm();
-              setState(() {});
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            ),
-            child: const Text(
-              '알람 해제',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -376,47 +350,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _alarmCard(DailyPlanModel plan) {
-    final fired = AlarmService.instance.isAlarmFired;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: fired ? const Color(0xFFFFEBEE) : const Color(0xFFE8F0FE),
+        color: const Color(0xFFE8F0FE),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          Icon(
-            fired ? Icons.alarm_on : Icons.notifications_active,
-            size: 20,
-            color: fired ? Colors.red : const Color(0xFFFBBC04),
-          ),
+          const Icon(Icons.notifications_active,
+              size: 20, color: Color(0xFFFBBC04)),
           const SizedBox(width: 10),
           Text('기상 알람',
               style: TextStyle(fontSize: 14, color: Colors.grey[700])),
           const Spacer(),
-          if (fired)
-            TextButton(
-              onPressed: () {
-                AlarmService.instance.dismissAlarm();
-                setState(() {});
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: const Size(48, 32),
-              ),
-              child: const Text('해제',
-                  style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-            )
-          else
-            Text(
-              _fmt(plan.finalAlarmTime),
-              style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A73E8)),
-            ),
+          Text(
+            _fmt(plan.finalAlarmTime),
+            style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A73E8)),
+          ),
         ],
       ),
     );
