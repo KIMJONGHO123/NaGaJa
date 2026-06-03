@@ -200,19 +200,13 @@ class AlarmService {
 // 알림 탭/액션 콜백 — 앱이 살아있을 때 (포그라운드/백그라운드 모두)
 void _onNotificationTap(NotificationResponse response) {
   if (response.actionId == 'dismiss') {
-    // 알림 "알람 해제" 액션 버튼 → 바로 해제
     AlarmService.instance.dismissAlarm();
-  } else {
-    // 알림 본문 탭 → 아직 발사 안 됐으면 발사, 이미 발사됐으면 notifier 재트리거
-    final svc = AlarmService.instance;
-    if (!svc._fired) {
-      svc._fireAlarm();
-    } else {
-      // 이미 발사 상태이지만 AlarmScreen이 없을 수 있으므로 다시 트리거
-      svc.alarmFiredNotifier.value = false;
-      svc.alarmFiredNotifier.value = true;
-    }
+  } else if (!AlarmService.instance._fired) {
+    // OS zonedSchedule 알림이 먼저 떴지만 Dart 타이머가 아직 체크 전인 경우
+    AlarmService.instance._fireAlarm();
   }
+  // _fired == true면 _fireAlarm()이 이미 Push #1을 처리했음.
+  // 여기서 re-trigger하면 AlarmScreen이 중복 push됨 → 아무것도 하지 않는다.
 }
 
 // 알림 탭/액션 콜백 — 앱이 완전히 종료된 상태에서 알림을 탭했을 때

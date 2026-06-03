@@ -50,11 +50,15 @@ class _NagajaAppState extends State<NagajaApp> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  bool _alarmScreenShowing = false;
+
   void _onAlarmFired() {
     if (!AlarmService.instance.alarmFiredNotifier.value) return;
+    if (_alarmScreenShowing) return;
+    _alarmScreenShowing = true;
     navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => const AlarmScreen()),
-    );
+    ).then((_) => _alarmScreenShowing = false);
   }
 
   @override
