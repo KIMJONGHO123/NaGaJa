@@ -19,12 +19,26 @@ class _AlarmScreenState extends State<AlarmScreen> {
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
+    AlarmService.instance.alarmFiredNotifier.addListener(_onExternalDismiss);
+    // 배너 "알람 해제"로 이미 해제된 채 AlarmScreen이 생성된 경우 즉시 pop
+    if (!AlarmService.instance.isAlarmFired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+    }
   }
 
   @override
   void dispose() {
     _clockTimer.cancel();
+    AlarmService.instance.alarmFiredNotifier.removeListener(_onExternalDismiss);
     super.dispose();
+  }
+
+  void _onExternalDismiss() {
+    if (!AlarmService.instance.alarmFiredNotifier.value && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   String _pad(int n) => n.toString().padLeft(2, '0');
