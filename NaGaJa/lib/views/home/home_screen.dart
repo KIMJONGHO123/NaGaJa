@@ -37,16 +37,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return DailyPlanService.instance.planForSchedule(id);
   }
 
+  /// sentinel(1970) 과거값이 아닌 유효한 알람/출발 시각인지 확인
+  bool _isValidTime(DateTime dt) => dt.year >= 2000;
+
   /// DailyPlan이 있고 오늘 날짜 플랜이면 예측 이동시간, 아니면 기본값
   int get _travelMinutes {
     if (_nextClassTime == null) return SettingsService.instance.defaultTravelMinutes;
     final plan = _activePlan;
     if (plan != null) {
       final ft = plan.finalDepartureTime;
-      final sameDay = ft.year == _nextClassTime!.year &&
-          ft.month == _nextClassTime!.month &&
-          ft.day == _nextClassTime!.day;
-      if (sameDay) return plan.predictedTravelMinutes;
+      if (_isValidTime(ft)) {
+        final sameDay = ft.year == _nextClassTime!.year &&
+            ft.month == _nextClassTime!.month &&
+            ft.day == _nextClassTime!.day;
+        if (sameDay) return plan.predictedTravelMinutes;
+      }
     }
     return SettingsService.instance.defaultTravelMinutes;
   }
@@ -103,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _scheduleAlarmIfNeeded() {
     final plan = _activePlan;
     if (plan == null) return;
+    if (!_isValidTime(plan.finalAlarmTime)) return; // sentinel이면 예약 안 함
     AlarmService.instance.scheduleAlarm(plan.finalAlarmTime);
   }
 
@@ -151,10 +157,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final plan = _activePlan;
     if (plan != null) {
       final ft = plan.finalDepartureTime;
-      final sameDay = ft.year == _nextClassTime!.year &&
-          ft.month == _nextClassTime!.month &&
-          ft.day == _nextClassTime!.day;
-      if (sameDay) return ft;
+      if (_isValidTime(ft)) {
+        final sameDay = ft.year == _nextClassTime!.year &&
+            ft.month == _nextClassTime!.month &&
+            ft.day == _nextClassTime!.day;
+        if (sameDay) return ft;
+      }
     }
     return _nextClassTime!.subtract(Duration(minutes: _travelMinutes + 5));
   }
@@ -258,9 +266,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildInfoCard() {
     // 오늘 수업이 없으면 출발 시각 표시 안 함
-    final departStr = (_nextClassTime != null && _shouldDepartAt != null)
-        ? _fmt(_shouldDepartAt!)
-        : '--:--';
+    // 플랜이 있는데 finalDepartureTime이 sentinel(1970)이면 '계산 전' 표시
+    final String departStr;
+    if (_nextClassTime == null) {
+      departStr = '--:--';
+    } else if (_activePlan != null && !_isValidTime(_activePlan!.finalDepartureTime)) {
+      departStr = '계산 전';
+    } else {
+      departStr = _shouldDepartAt != null ? _fmt(_shouldDepartAt!) : '--:--';
+    }
     final hasPlan = _activePlan != null && !_activePlan!.fallbackUsed;
     return Container(
       padding: const EdgeInsets.all(20),
@@ -350,13 +364,17 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('기상 알람',
               style: TextStyle(fontSize: 14, color: Colors.grey[700])),
           const Spacer(),
-          Text(
-            _fmt(plan.finalAlarmTime),
-            style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1A73E8)),
-          ),
+          if (_isValidTime(plan.finalAlarmTime))
+            Text(
+              _fmt(plan.finalAlarmTime),
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A73E8)),
+            )
+          else
+            Text('기상 알람 없음',
+                style: TextStyle(fontSize: 14, color: Colors.grey[500])),
         ],
       ),
     );

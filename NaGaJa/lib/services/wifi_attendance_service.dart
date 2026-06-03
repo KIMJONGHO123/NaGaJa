@@ -131,6 +131,7 @@ class WifiAttendanceService extends ChangeNotifier {
 
       // 시간창 가드: 기상 알람 시각 ~ 수업 시작 +2시간 사이에서만 자동 처리
       final windowStart = plan.finalAlarmTime;
+      if (windowStart.year < 2000) return; // sentinel(1970)이면 알람 시각 없음 → skip
       final windowEnd = classStart.add(const Duration(hours: 2));
       if (now.isBefore(windowStart) || now.isAfter(windowEnd)) return;
 

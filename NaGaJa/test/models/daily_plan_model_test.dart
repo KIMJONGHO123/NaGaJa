@@ -49,17 +49,15 @@ void main() {
       expect(model.finalAlarmTime, DateTime(2026, 6, 3, 8, 0));
     });
 
-    test('Timestamp 필드 누락 시 DateTime.now() 폴백 (크래시 없음)', () {
+    test('Timestamp 필드 누락 시 sentinel(1970) 반환', () {
       final map = Map<String, dynamic>.from(baseMap)
         ..remove('finalDepartureTime')
         ..remove('finalAlarmTime');
 
-      final before = DateTime.now();
       final model = DailyPlanModel.fromMap(map);
-      final after = DateTime.now();
 
-      expect(model.finalDepartureTime.isAfter(before.subtract(const Duration(seconds: 1))), isTrue);
-      expect(model.finalDepartureTime.isBefore(after.add(const Duration(seconds: 1))), isTrue);
+      expect(model.finalDepartureTime.year, 1970);
+      expect(model.finalAlarmTime.year, 1970);
     });
 
     test('departedAt / arrivedAt — Timestamp 있을 때 파싱', () {
