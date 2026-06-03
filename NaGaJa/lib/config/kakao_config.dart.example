@@ -1,0 +1,4 @@
+// ⚠ 이 파일을 복사해서 kakao_config.dart 로 이름을 바꾸고 API 키를 입력하세요.
+// kakao_config.dart 는 .gitignore 에 등록되어 있으므로 절대 커밋하지 마세요.
+// https://developers.kakao.com 에서 REST API 키를 발급받아 아래에 입력하세요.
+const String kakaoRestApiKey = 'YOUR_KAKAO_REST_API_KEY';
