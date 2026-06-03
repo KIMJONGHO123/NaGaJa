@@ -41,6 +41,12 @@ dependencies:
   cloud_firestore: ^6.4.1
   http: ^1.2.2
   audioplayers: ^6.1.0
+  flutter_local_notifications: ^18.0.0
+  timezone: ^0.9.4
+  # Wi-Fi 출결 감지 (집 Wi-Fi 끊김=출발 / 학교 Wi-Fi 연결=도착)
+  connectivity_plus: ^6.1.0
+  network_info_plus: ^6.1.0
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

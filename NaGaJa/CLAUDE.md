@@ -174,6 +174,11 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 - **`resultStatus`(ON_TIME/LATE)** 도착 시 계산·저장 (`arrivedAt` vs **`classTime`(수업 시작 시각)** — 수업 시작 후 도착 = 지각)
 - **캘린더 Firestore 실연동**: `dailyPlans` 기반 정시/지각/결석 집계 (Mock 제거, 새로고침 버튼)
 - `arrivalLogs` 보안 규칙 추가 및 배포 완료
+- **격자(nx/ny) 변환 일원화**: Flutter `_toKmaGrid` 제거 → 좌표만 전송, 백엔드 `grid.utils.convertToGrid`가 격자 계산 (회의 결정 반영)
+- **온보딩 도로명주소 검색**: 설정의 Kakao 주소검색 위젯을 [address_search_field.dart](lib/views/widgets/address_search_field.dart) 공용 위젯으로 추출 → 온보딩(기초정보 입력)에서도 사용. 온보딩 단계부터 좌표 저장 → geocoding 500 차단
+- **Wi-Fi 자동 출결 1·2단계**: 설정 "Wi-Fi 출결" 카드(집/학교 SSID 등록) + [wifi_attendance_service.dart](lib/services/wifi_attendance_service.dart)(연결 변화 감지 → 출발/도착 자동 기록, 디바운스·시간창·멱등성·날짜리셋·재진입가드). 에뮬+실기기(S23+) 발화 검증
+- **Wi-Fi 자동 출결 3-a (백그라운드)**: `ACCESS_BACKGROUND_LOCATION` 권한 + 재경의 포그라운드 서비스(프로세스 생존)로 **앱 내려도 SSID 읽어 자동 출결**. 재경 네이티브 수정 없이 동작. **실기기(S23+) 백그라운드 출발/도착 발화 검증 완료** (단 1기기 기준). 완전종료(3-b)는 네이티브 필요
+- **백엔드 실패 시 로컬 폴백 보강**: `generateDailyPlan` 500이어도 해당 scheduleId 플랜이 없으면 로컬 폴백 생성(`_plans.isEmpty`→`!containsKey`) → 백엔드 장애 시에도 앱/감지 동작
 
 **미완성 (Flutter)**
 - 캘린더 자동 새로고침: `IndexedStack`으로 시작 시 1회 로드 → 도착 직후 반영은 새로고침 버튼 필요 (탭 포커스 시 자동 reload 개선 여지)
@@ -181,7 +186,7 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 
 **미완성 (백엔드·협의 필요)**
 - FCM 푸시 알림 (`finalAlarmTime` 기준)
-- Wi-Fi 자동 출발/도착 감지 (`homeWifiSsids`/`schoolWifiSsids` 활용)
+- Wi-Fi 자동 감지 **3-b (완전 종료)**: 앱 스와이프/OS kill 시 Dart가 죽으므로 네이티브(Kotlin) BroadcastReceiver 필요. (1·2 + 3-a 백그라운드는 Flutter 완료·실기기 검증, 3-b만 남음)
 - `alarmDismissedAt` 저장
 - Raspberry Pi BLE 연동
 
@@ -228,10 +233,10 @@ HTTP 요청 (userId, planDate?, scheduleId?)
 |------|------|
 | `finalAlarmTime` | 홈 기상 알람 카드로 **표시만** (실제 알람 미발생) — 로컬 알림/FCM 미구현, 나중에 진행 |
 | `alarmDismissedAt` | 미구현 |
-| Wi-Fi 자동 감지 | `homeWifiSsids`/`schoolWifiSsids` 저장만, 감지 로직 없음 |
+| Wi-Fi 자동 감지 | **1·2단계 + 3-a(백그라운드) 완료** — SSID 등록 + 자동 출발·도착, 앱 내려도 동작(ACCESS_BACKGROUND_LOCATION). 에뮬+실기기(S23+) 검증. 3-b(완전종료)만 네이티브 남음 |
 
 ### 설계 의도 vs 현재 구현
-- `departedAt` / `arrivedAt`: 설계는 Wi-Fi 자동 감지 기반, 현재는 버튼 수동 저장
+- `departedAt` / `arrivedAt`: Wi-Fi 자동 감지(1·2 + 3-a 백그라운드) + 버튼 수동 저장(폴백) 병행. 완전종료(3-b)만 네이티브 추후
 - 아침 자동 실행(`createDailyPlansAtDawn`): 스케줄러 배포됨, Flutter는 수동 트리거 병행
 
 ### `generateDailyPlan` 500 / 칩(카드) 미표시 트러블슈팅 (2026-06-01 확인)

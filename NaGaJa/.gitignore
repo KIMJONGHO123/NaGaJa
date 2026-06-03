@@ -39,7 +39,6 @@ build/
 doc/api/
 
 # Flutter 웹 생성 파일
-lib/generated_plugin_registrant.dart
 
 # Coverage
 coverage/
@@ -146,3 +145,4 @@ tmp/
 temp/
 lib/config/kakao_config.dart
 docs/superpowers/plans/
+.flutter-plugins-dependencies

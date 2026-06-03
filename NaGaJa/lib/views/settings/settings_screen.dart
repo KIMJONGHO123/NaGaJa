@@ -4,6 +4,8 @@ import '../../models/user_model.dart';
 import '../../services/daily_plan_service.dart';
 import '../../services/kakao_address_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/wifi_attendance_service.dart';
+import '../widgets/address_search_field.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -81,6 +83,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           _header('개인 설정'),
           _buildPrepTimeCard(),
+          const SizedBox(height: 16),
+          _header('Wi-Fi 출결'),
+          _buildWifiCard(),
           const SizedBox(height: 16),
           _header('기기 연결'),
           _buildDeviceCard(),
@@ -283,6 +288,160 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  // ── Wi-Fi 출결 ───────────────────────────────────────────────────────────────
+  Widget _buildWifiCard() {
+    final user = SettingsService.instance.userModel;
+    final home = user?.homeWifiSsids ?? const [];
+    final school = user?.schoolWifiSsids ?? const [];
+    return _card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '집 Wi-Fi가 끊기면 자동 출발, 학교 Wi-Fi에 연결되면 자동 도착으로 기록됩니다.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            _wifiGroup(
+              icon: Icons.home,
+              label: '집 Wi-Fi',
+              ssids: home,
+              onAdd: () => _registerWifi(isHome: true),
+              onRemove: (s) => _removeWifi(isHome: true, ssid: s),
+            ),
+            const Divider(height: 24),
+            _wifiGroup(
+              icon: Icons.school,
+              label: '학교 Wi-Fi',
+              ssids: school,
+              onAdd: () => _registerWifi(isHome: false),
+              onRemove: (s) => _removeWifi(isHome: false, ssid: s),
+            ),
+            const Divider(height: 24),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _enableBackgroundDetection,
+                icon: const Icon(Icons.dark_mode_outlined, size: 18),
+                label: const Text("앱을 내려도 감지 (위치 '항상 허용')"),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _enableBackgroundDetection() async {
+    final ok =
+        await WifiAttendanceService.instance.ensureBackgroundLocationPermission();
+    _snack(ok
+        ? '백그라운드 감지 활성화됨 (위치 항상 허용). 앱을 내려도 자동 출결이 동작합니다.'
+        : "위치를 '항상 허용'으로 설정하면 앱을 내려도 자동 출결이 됩니다. (설정에서 변경)");
+  }
+
+  Widget _wifiGroup({
+    required IconData icon,
+    required String label,
+    required List<String> ssids,
+    required VoidCallback onAdd,
+    required void Function(String) onRemove,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: Colors.blue),
+            const SizedBox(width: 8),
+            Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('현재 Wi-Fi 등록'),
+            ),
+          ],
+        ),
+        if (ssids.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text('등록된 Wi-Fi 없음',
+                style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: ssids
+                .map((s) => Chip(
+                      label: Text(s),
+                      onDeleted: () => onRemove(s),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                    ))
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _registerWifi({required bool isHome}) async {
+    final wifi = WifiAttendanceService.instance;
+    final granted = await wifi.ensureLocationPermission();
+    if (!granted) {
+      _snack('위치 권한이 필요합니다. (현재 Wi-Fi 이름 확인용)');
+      return;
+    }
+    final ssid = await wifi.currentSsid();
+    if (ssid == null) {
+      _snack('현재 Wi-Fi를 확인할 수 없습니다. Wi-Fi 연결과 위치 서비스를 확인해주세요.');
+      return;
+    }
+    final svc = SettingsService.instance;
+    final user = svc.userModel;
+    final home = List<String>.from(user?.homeWifiSsids ?? const []);
+    final school = List<String>.from(user?.schoolWifiSsids ?? const []);
+    final target = isHome ? home : school;
+    if (target.contains(ssid)) {
+      _snack('이미 등록된 Wi-Fi입니다: $ssid');
+      return;
+    }
+    target.add(ssid);
+    await svc.saveUserSettings(
+      prepMinutes: _prepMinutes,
+      defaultTravelMinutes: _defaultTravelMinutes,
+      homeWifiSsids: home,
+      schoolWifiSsids: school,
+    );
+    if (mounted) setState(() {});
+    _snack('${isHome ? '집' : '학교'} Wi-Fi로 등록됨: $ssid');
+  }
+
+  Future<void> _removeWifi(
+      {required bool isHome, required String ssid}) async {
+    final svc = SettingsService.instance;
+    final user = svc.userModel;
+    final home = List<String>.from(user?.homeWifiSsids ?? const []);
+    final school = List<String>.from(user?.schoolWifiSsids ?? const []);
+    (isHome ? home : school).remove(ssid);
+    await svc.saveUserSettings(
+      prepMinutes: _prepMinutes,
+      defaultTravelMinutes: _defaultTravelMinutes,
+      homeWifiSsids: home,
+      schoolWifiSsids: school,
+    );
+    if (mounted) setState(() {});
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Widget _buildDeviceCard() {
@@ -614,14 +773,14 @@ class _ScheduleEditSheetState extends State<_ScheduleEditSheet> {
                     }),
                   ),
                   const SizedBox(height: 16),
-                  _AddressSearchField(
+                  AddressSearchField(
                     label: '출발지',
                     hint: '장소명 또는 주소 검색 (예: 집, 서면역)',
                     initialPlace: _startPlace,
                     onSelected: (p) => setState(() => _startPlace = p),
                   ),
                   const SizedBox(height: 16),
-                  _AddressSearchField(
+                  AddressSearchField(
                     label: '목적지 (강의실)',
                     hint: '장소명 또는 주소 검색 (예: 공학관)',
                     initialPlace: _destPlace,
@@ -678,286 +837,6 @@ class _ScheduleEditSheetState extends State<_ScheduleEditSheet> {
           ),
         ),
       ],
-    );
-  }
-}
-
-// ── 카카오 주소 검색 필드 ────────────────────────────────────────────────────────
-class _AddressSearchField extends StatefulWidget {
-  final String label;
-  final String hint;
-  final KakaoPlace? initialPlace;
-  final ValueChanged<KakaoPlace?> onSelected;
-
-  const _AddressSearchField({
-    required this.label,
-    required this.hint,
-    this.initialPlace,
-    required this.onSelected,
-  });
-
-  @override
-  State<_AddressSearchField> createState() => _AddressSearchFieldState();
-}
-
-class _AddressSearchFieldState extends State<_AddressSearchField> {
-  late final TextEditingController _ctrl;
-  List<KakaoPlace> _results = [];
-  KakaoPlace? _selected;
-  Timer? _debounce;
-  bool _loading = false;
-  bool _noResults = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = widget.initialPlace;
-    _ctrl = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _onChanged(String q) {
-    _debounce?.cancel();
-    setState(() => _noResults = false);
-    if (q.trim().length < 2) {
-      setState(() {
-        _results = [];
-        _loading = false;
-      });
-      return;
-    }
-    setState(() => _loading = true);
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final r = await KakaoAddressService.instance.search(q.trim());
-      if (!mounted) return;
-      setState(() {
-        _results = r;
-        _loading = false;
-        _noResults = r.isEmpty;
-      });
-    });
-  }
-
-  void _select(KakaoPlace p) {
-    setState(() {
-      _selected = p;
-      _results = [];
-      _noResults = false;
-      _ctrl.clear();
-    });
-    widget.onSelected(p);
-  }
-
-  // API 키 없거나 결과 없을 때 입력한 텍스트를 그대로 저장
-  void _confirmManual() {
-    final text = _ctrl.text.trim();
-    if (text.isEmpty) return;
-    final p = KakaoPlace(
-      placeName: text,
-      roadAddress: text,
-      address: text,
-      lat: 0.0,
-      lng: 0.0,
-    );
-    _select(p);
-  }
-
-  void _clear() {
-    setState(() {
-      _selected = null;
-      _results = [];
-      _noResults = false;
-      _ctrl.clear();
-    });
-    widget.onSelected(null);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        if (_selected != null)
-          _buildSelectedTile()
-        else ...[
-          TextField(
-            controller: _ctrl,
-            onChanged: _onChanged,
-            decoration: InputDecoration(
-              hintText: widget.hint,
-              prefixIcon: _loading
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : const Icon(Icons.search, size: 20),
-              filled: true,
-              fillColor: Colors.grey[100],
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-            ),
-          ),
-          if (_results.isNotEmpty) _buildResultList(),
-          if (_noResults) _buildNoResultRow(),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildSelectedTile() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.blue.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.location_on, size: 18, color: Colors.blue),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _selected!.placeName,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (_selected!.roadAddress.isNotEmpty)
-                  Text(
-                    _selected!.roadAddress,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                  ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: _clear,
-            child: Icon(Icons.close, size: 18, color: Colors.grey[500]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildResultList() {
-    return Container(
-      margin: const EdgeInsets.only(top: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: _results.asMap().entries.map((e) {
-          final p = e.value;
-          final isLast = e.key == _results.length - 1;
-          return Column(
-            children: [
-              InkWell(
-                onTap: () => _select(p),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.location_on_outlined,
-                        size: 16,
-                        color: Colors.grey[500],
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.placeName,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (p.roadAddress.isNotEmpty)
-                              Text(
-                                p.roadAddress,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (!isLast) const Divider(height: 1, indent: 38),
-            ],
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildNoResultRow() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(
-        children: [
-          Text(
-            '검색 결과 없음',
-            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: _confirmManual,
-            child: Text(
-              '직접 입력으로 저장',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.blue[600],
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

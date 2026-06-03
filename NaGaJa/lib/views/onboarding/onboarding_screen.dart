@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
+import '../../services/kakao_address_service.dart';
 import '../../services/settings_service.dart';
+import '../widgets/address_search_field.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -58,10 +60,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           dayOfWeek: d.dayOfWeek,
           classTime: d.classTime,
           targetArrivalTime: d.targetArrivalTime,
-          startPlaceName: '집',
+          startPlaceName: d.startPlaceName,
           startAddress: d.startAddress,
+          startLat: d.startLat,
+          startLng: d.startLng,
           destinationName: d.destinationName,
           destinationAddress: d.destinationAddress,
+          endLat: d.endLat,
+          endLng: d.endLng,
           transportMode: d.transportMode,
           isActive: true,
         )).toList();
@@ -362,9 +368,10 @@ class _ScheduleAddSheet extends StatefulWidget {
 
 class _ScheduleAddSheetState extends State<_ScheduleAddSheet> {
   final _titleCtrl = TextEditingController();
-  final _startAddressCtrl = TextEditingController(text: '');
-  final _destNameCtrl = TextEditingController();
-  final _destAddressCtrl = TextEditingController();
+
+  // 설정 화면과 동일한 Kakao 주소 검색으로 출발지·목적지 선택 (좌표 포함)
+  KakaoPlace? _startPlace;
+  KakaoPlace? _destPlace;
 
   int _dayOfWeek = 1;
   TimeOfDay _classTime = const TimeOfDay(hour: 9, minute: 0);
@@ -377,16 +384,13 @@ class _ScheduleAddSheetState extends State<_ScheduleAddSheet> {
   @override
   void dispose() {
     _titleCtrl.dispose();
-    _startAddressCtrl.dispose();
-    _destNameCtrl.dispose();
-    _destAddressCtrl.dispose();
     super.dispose();
   }
 
   bool get _valid =>
       _titleCtrl.text.trim().isNotEmpty &&
-      _destNameCtrl.text.trim().isNotEmpty &&
-      _destAddressCtrl.text.trim().isNotEmpty;
+      _startPlace != null &&
+      _destPlace != null;
 
   String get _classTimeStr =>
       '${_classTime.hour.toString().padLeft(2, '0')}:${_classTime.minute.toString().padLeft(2, '0')}';
@@ -536,17 +540,31 @@ class _ScheduleAddSheetState extends State<_ScheduleAddSheet> {
                     }),
                   ),
                   const SizedBox(height: 16),
-                  _field('출발지 주소', _startAddressCtrl,
-                      hint: '예) 부산광역시 사상구 학장로 123'),
+                  AddressSearchField(
+                    label: '출발지',
+                    hint: '장소명 또는 주소 검색 (예: 집, 서면역)',
+                    initialPlace: _startPlace,
+                    onSelected: (p) => setState(() => _startPlace = p),
+                  ),
                   const SizedBox(height: 16),
-                  _field('강의실 건물명', _destNameCtrl, hint: '예) 공학관'),
-                  const SizedBox(height: 16),
-                  _field('강의실 주소', _destAddressCtrl,
-                      hint: '예) 부산광역시 부산진구 시민공원로 73'),
+                  AddressSearchField(
+                    label: '목적지 (강의실)',
+                    hint: '장소명 또는 주소 검색 (예: 공학관)',
+                    initialPlace: _destPlace,
+                    onSelected: (p) => setState(() => _destPlace = p),
+                  ),
                   const SizedBox(height: 32),
                   ElevatedButton(
                     onPressed: _valid
                         ? () {
+                            final start = _startPlace!;
+                            final dest = _destPlace!;
+                            final startAddr = start.roadAddress.isNotEmpty
+                                ? start.roadAddress
+                                : start.address;
+                            final destAddr = dest.roadAddress.isNotEmpty
+                                ? dest.roadAddress
+                                : dest.address;
                             Navigator.pop(
                               context,
                               _ScheduleDraft(
@@ -554,10 +572,14 @@ class _ScheduleAddSheetState extends State<_ScheduleAddSheet> {
                                 dayOfWeek: _dayOfWeek,
                                 classTime: _classTimeStr,
                                 targetArrivalTime: _targetArrivalStr,
-                                startAddress: _startAddressCtrl.text.trim(),
-                                destinationName: _destNameCtrl.text.trim(),
-                                destinationAddress:
-                                    _destAddressCtrl.text.trim(),
+                                startPlaceName: start.placeName,
+                                startAddress: startAddr,
+                                startLat: start.lat != 0.0 ? start.lat : null,
+                                startLng: start.lng != 0.0 ? start.lng : null,
+                                destinationName: dest.placeName,
+                                destinationAddress: destAddr,
+                                endLat: dest.lat != 0.0 ? dest.lat : null,
+                                endLng: dest.lng != 0.0 ? dest.lng : null,
                                 transportMode: _transportMode,
                               ),
                             );
@@ -617,9 +639,14 @@ class _ScheduleDraft {
   final int dayOfWeek;
   final String classTime;
   final String targetArrivalTime;
+  final String startPlaceName;
   final String startAddress;
+  final double? startLat;
+  final double? startLng;
   final String destinationName;
   final String destinationAddress;
+  final double? endLat;
+  final double? endLng;
   final String transportMode;
 
   const _ScheduleDraft({
@@ -627,9 +654,14 @@ class _ScheduleDraft {
     required this.dayOfWeek,
     required this.classTime,
     required this.targetArrivalTime,
+    required this.startPlaceName,
     required this.startAddress,
+    this.startLat,
+    this.startLng,
     required this.destinationName,
     required this.destinationAddress,
+    this.endLat,
+    this.endLng,
     required this.transportMode,
   });
 }
