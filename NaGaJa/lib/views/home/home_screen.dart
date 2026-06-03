@@ -24,7 +24,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _departed = false;
   bool _arrived = false;
   bool _loading = true;
-  bool _planRefreshing = false;
   DateTime? _prepStartedAt;
   DateTime? _departedAt;
 
@@ -99,21 +98,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onSettingsChanged() {
     _recomputeNextClass();
     if (mounted) setState(() {});
-  }
-
-  Future<void> _refreshPlan() async {
-    if (_planRefreshing) return;
-    setState(() => _planRefreshing = true);
-    await DailyPlanService.instance.generateDailyPlan(
-      scheduleId: (SettingsService.instance.todayNextSchedule ??
-              SettingsService.instance.nextSchedule)
-          ?.scheduleId,
-    );
-    if (mounted) {
-      _recomputeNextClass();
-      _scheduleAlarmIfNeeded();
-      setState(() => _planRefreshing = false);
-    }
   }
 
   void _scheduleAlarmIfNeeded() {
@@ -352,36 +336,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPlanRefreshRow(bool hasPlan) {
-    return GestureDetector(
-      onTap: _planRefreshing ? null : _refreshPlan,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (_planRefreshing)
-            const SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(strokeWidth: 1.5),
-            )
-          else
-            Icon(
-              hasPlan ? Icons.cloud_done_outlined : Icons.cloud_sync_outlined,
-              size: 14,
-              color: Colors.grey[400],
-            ),
-          const SizedBox(width: 6),
-          Text(
-            _planRefreshing
-                ? '경로 계산 중...'
-                : hasPlan
-                    ? (_activePlan?.selectedRouteNo != null
-                        ? '${_activePlan!.selectedRouteNo}번 기준 · 새로고침'
-                        : 'AI 예측 적용됨 · 새로고침')
-                    : '실시간 경로 계산하기',
-            style: TextStyle(fontSize: 11, color: Colors.grey[400]),
-          ),
-        ],
-      ),
+    // 표시 전용: 생성은 백엔드 스케줄러(4시+알람30분전) 담당, 앱은 조회만.
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          hasPlan ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+          size: 14,
+          color: Colors.grey[400],
+        ),
+        const SizedBox(width: 6),
+        Text(
+          hasPlan
+              ? (_activePlan?.selectedRouteNo != null
+                  ? '${_activePlan!.selectedRouteNo}번 기준'
+                  : 'AI 예측 적용됨')
+              : '오늘 계획이 아직 없어요 (새벽에 자동 생성)',
+          style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+        ),
+      ],
     );
   }
 

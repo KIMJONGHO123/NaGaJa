@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'services/alarm_service.dart';
 import 'services/background_audio_service.dart';
-import 'services/daily_plan_service.dart';
 import 'services/settings_service.dart';
 import 'views/auth/login_screen.dart';
 import 'views/main_shell.dart';
@@ -131,10 +130,8 @@ class _UserRouterState extends State<_UserRouter> {
       await svc.reloadFromFirestore();
     }
 
-    // 스케줄이 있으면 오늘의 dailyPlan 생성 (백그라운드)
-    if (svc.schedules.isNotEmpty) {
-      DailyPlanService.instance.generateDailyPlan().ignore();
-    }
+    // dailyPlan 생성은 백엔드 스케줄러(4시 + 알람 30분 전 계산) 담당.
+    // 앱은 생성하지 않고 loadTodayPlans로 조회만 한다.
 
     if (mounted) setState(() => _checking = false);
   }
