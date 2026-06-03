@@ -125,12 +125,8 @@ class DailyPlanService {
       print('[DailyPlan] exception: $e');
     }
 
-    // Cloud Function이 플랜을 만들지 못했으면 로컬 계산으로 대체.
-    // scheduleId가 지정됐는데 그 스케줄 플랜이 없으면(백엔드 500 등) 해당 스케줄만 폴백 생성.
-    // (다른 스케줄 플랜이 이미 있어도 건너뛰지 않도록 — 백엔드 장애 시에도 앱 동작)
-    final needFallback =
-        scheduleId != null ? !_plans.containsKey(scheduleId) : _plans.isEmpty;
-    if (needFallback) {
+    // Cloud Function이 플랜을 만들지 못했으면 로컬 계산으로 대체
+    if (_plans.isEmpty) {
       await _createLocalPlan(scheduleId: scheduleId);
     }
     return _plans.isNotEmpty;
