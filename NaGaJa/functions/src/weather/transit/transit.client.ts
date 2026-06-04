@@ -14,8 +14,12 @@ const transitClient = axios.create({
     Accept: "application/json",
     "Content-Type": "application/json",
     // 앱키 들어가는 자리 (헤더 appKey)
-    appKey: TMAP_APP_KEY.value(),
   },
+});
+
+transitClient.interceptors.request.use((config) => {
+  config.headers.set("appKey", TMAP_APP_KEY.value());
+  return config;
 });
 
 export default transitClient;

@@ -11,6 +11,7 @@
 import * as admin from "firebase-admin";
 import { defineString } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onRequest,Request } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Response } from "firebase-functions";
@@ -24,6 +25,7 @@ import { runFullDailyPlanPipeline } from "./services/dailyPlanPipeline";
 import {
   calculateDuePendingDailyPlans,
   createPendingDailyPlansForToday,
+  recalculateTodayDailyPlanForScheduleWrite,
 } from "./services/schedulerService";
 
 
@@ -344,5 +346,28 @@ export const calculatePendingDailyPlans = onSchedule(
       weatherServiceKey: weatherServiceKey.value(),
     });
     console.log("calculatePendingDailyPlans summary", summary);
+  },
+);
+
+// ======================================================
+// 기능 9: 당일 schedule 변경 시 오늘 dailyPlan 즉시 재계산
+// ======================================================
+
+export const recalculateTodayDailyPlanOnScheduleWrite = onDocumentWritten(
+  "users/{userId}/schedules/{scheduleId}",
+  async (event) => {
+    const result = await recalculateTodayDailyPlanForScheduleWrite({
+      userId: event.params.userId,
+      scheduleId: event.params.scheduleId,
+      before: event.data?.before.data(),
+      after: event.data?.after.data(),
+      weatherServiceKey: weatherServiceKey.value(),
+    });
+
+    console.log("recalculateTodayDailyPlanOnScheduleWrite result", {
+      userId: event.params.userId,
+      scheduleId: event.params.scheduleId,
+      ...result,
+    });
   },
 );

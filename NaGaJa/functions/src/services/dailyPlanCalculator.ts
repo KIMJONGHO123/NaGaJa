@@ -529,6 +529,7 @@ export const calculateAndUpsertDailyPlan = async (
     remainingMarginMinutes,
     displayColor,
     displayCheckedAt: Timestamp.fromDate(displayCheckedAt),
+    sourceScheduleUpdatedAt: schedule.updatedAt,
     updatedAt: nowTs,
   };
 

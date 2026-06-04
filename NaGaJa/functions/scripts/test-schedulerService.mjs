@@ -252,6 +252,7 @@ async function assertPendingPlansAreCreatedForTodayOnly() {
 
   assert.equal(result.planDate, "2026-05-31");
   assert.equal(result.createdCount, 1);
+  assert.equal(result.refreshedCount, 0);
   assert.equal(result.skippedCount, 0);
 
   const plan = db.docs.get("users/userA/dailyPlans/2026-05-31_scheduleA");
@@ -260,6 +261,7 @@ async function assertPendingPlansAreCreatedForTodayOnly() {
   assert.equal(plan.scheduleId, "scheduleA");
   assert.equal(plan.planDate, "2026-05-31");
   assert.equal(plan.planStatus, "PENDING");
+  assert.equal(plan.sourceScheduleUpdatedAt.toDate().toISOString(), "2026-05-01T00:00:00.000Z");
   assert.equal(plan.baseDepartureTime.toDate().toISOString(), "2026-05-30T20:30:00.000Z");
   assert.equal(plan.baseAlarmTime.toDate().toISOString(), "2026-05-30T19:50:00.000Z");
   assert.equal(plan.calculationTime.toDate().toISOString(), "2026-05-30T19:20:00.000Z");
@@ -275,6 +277,7 @@ async function assertExistingCalculatedPlansAreNotOverwritten() {
     planDate: "2026-05-31",
     planStatus: "CALCULATED",
     calculationTime: toTimestamp("2026-05-30T19:20:00.000Z"),
+    sourceScheduleUpdatedAt: toTimestamp("2026-05-01T00:00:00.000Z"),
     createdAt: toTimestamp("2026-05-30T18:00:00.000Z"),
     updatedAt: toTimestamp("2026-05-30T18:00:00.000Z"),
   };
@@ -287,8 +290,52 @@ async function assertExistingCalculatedPlansAreNotOverwritten() {
 
   const plan = db.docs.get("users/userA/dailyPlans/2026-05-31_scheduleA");
   assert.equal(result.createdCount, 0);
+  assert.equal(result.refreshedCount, 0);
   assert.equal(result.skippedCount, 1);
   assert.equal(plan.planStatus, "CALCULATED");
+}
+
+async function assertExistingPlanIsRefreshedWhenScheduleChanged() {
+  const seed = baseSeed();
+  seed["users/userA/schedules/scheduleA"] = {
+    ...seed["users/userA/schedules/scheduleA"],
+    title: "Updated Early Class",
+    targetArrivalTime: "07:10",
+    updatedAt: toTimestamp("2026-05-30T10:00:00.000Z"),
+  };
+  seed["users/userA/dailyPlans/2026-05-31_scheduleA"] = {
+    dailyPlanId: "2026-05-31_scheduleA",
+    scheduleId: "scheduleA",
+    planDate: "2026-05-31",
+    title: "Early Class",
+    targetArrivalTime: "06:50",
+    planStatus: "CALCULATED",
+    departedAt: toTimestamp("2026-05-31T00:00:00.000Z"),
+    calculationTime: toTimestamp("2026-05-30T19:20:00.000Z"),
+    sourceScheduleUpdatedAt: toTimestamp("2026-05-01T00:00:00.000Z"),
+    createdAt: toTimestamp("2026-05-30T18:00:00.000Z"),
+    updatedAt: toTimestamp("2026-05-30T18:00:00.000Z"),
+  };
+  const db = new FakeDb(seed);
+
+  const result = await scheduler.createPendingDailyPlansForToday({
+    db,
+    now: new Date("2026-05-30T19:00:00.000Z"),
+  });
+
+  const plan = db.docs.get("users/userA/dailyPlans/2026-05-31_scheduleA");
+  assert.equal(result.createdCount, 0);
+  assert.equal(result.refreshedCount, 1);
+  assert.equal(result.skippedCount, 0);
+  assert.equal(plan.title, "Updated Early Class");
+  assert.equal(plan.targetArrivalTime, "07:10");
+  assert.equal(plan.planStatus, "PENDING");
+  assert.equal(plan.departedAt.toDate().toISOString(), "2026-05-31T00:00:00.000Z");
+  assert.equal(plan.createdAt.toDate().toISOString(), "2026-05-30T18:00:00.000Z");
+  assert.equal(plan.sourceScheduleUpdatedAt.toDate().toISOString(), "2026-05-30T10:00:00.000Z");
+  assert.equal(plan.baseDepartureTime.toDate().toISOString(), "2026-05-30T20:50:00.000Z");
+  assert.equal(plan.baseAlarmTime.toDate().toISOString(), "2026-05-30T20:10:00.000Z");
+  assert.equal(plan.calculationTime.toDate().toISOString(), "2026-05-30T19:40:00.000Z");
 }
 
 async function assertDuePendingPlansOnlyAreFinalized() {
@@ -387,11 +434,185 @@ async function assertImpossibleFinalCalculationMarksFailed() {
   }
 }
 
+async function assertTodayScheduleWriteRecalculatesTodayPlan() {
+  const originalCalculate = calculator.calculateAndUpsertDailyPlan;
+  const calls = [];
+  calculator.calculateAndUpsertDailyPlan = async (input) => {
+    calls.push(input);
+    return {
+      dailyPlanId: `${input.planDate}_${input.scheduleId}`,
+      plan: { planStatus: "CALCULATED" },
+    };
+  };
+
+  try {
+    const result = await scheduler.recalculateTodayDailyPlanForScheduleWrite({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      before: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "07:00",
+        targetArrivalTime: "06:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      after: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "08:00",
+        targetArrivalTime: "07:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      weatherServiceKey: "test-key",
+      now: new Date("2026-05-30T19:00:00.000Z"),
+    });
+
+    assert.equal(result.recalculated, true);
+    assert.equal(result.reason, "recalculated");
+    assert.deepEqual(
+      calls.map((call) => ({
+        userId: call.userId,
+        scheduleId: call.scheduleId,
+        planDate: call.planDate,
+        weatherServiceKey: call.weatherServiceKey,
+      })),
+      [
+        {
+          userId: "userA",
+          scheduleId: "scheduleA",
+          planDate: "2026-05-31",
+          weatherServiceKey: "test-key",
+        },
+      ],
+    );
+  } finally {
+    calculator.calculateAndUpsertDailyPlan = originalCalculate;
+  }
+}
+
+async function assertFutureScheduleWriteIsIgnored() {
+  const originalCalculate = calculator.calculateAndUpsertDailyPlan;
+  const calls = [];
+  calculator.calculateAndUpsertDailyPlan = async (input) => {
+    calls.push(input);
+    return {
+      dailyPlanId: `${input.planDate}_${input.scheduleId}`,
+      plan: { planStatus: "CALCULATED" },
+    };
+  };
+
+  try {
+    const result = await scheduler.recalculateTodayDailyPlanForScheduleWrite({
+      userId: "userA",
+      scheduleId: "scheduleWrongDay",
+      before: {
+        title: "Wrong Day",
+        dayOfWeek: 1,
+        classTime: "09:00",
+        targetArrivalTime: "08:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      after: {
+        title: "Wrong Day",
+        dayOfWeek: 1,
+        classTime: "10:00",
+        targetArrivalTime: "09:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      weatherServiceKey: "test-key",
+      now: new Date("2026-05-30T19:00:00.000Z"),
+    });
+
+    assert.equal(result.recalculated, false);
+    assert.equal(result.reason, "not_today");
+    assert.equal(calls.length, 0);
+  } finally {
+    calculator.calculateAndUpsertDailyPlan = originalCalculate;
+  }
+}
+
+async function assertCacheOnlyScheduleWriteIsIgnored() {
+  const originalCalculate = calculator.calculateAndUpsertDailyPlan;
+  const calls = [];
+  calculator.calculateAndUpsertDailyPlan = async (input) => {
+    calls.push(input);
+    return {
+      dailyPlanId: `${input.planDate}_${input.scheduleId}`,
+      plan: { planStatus: "CALCULATED" },
+    };
+  };
+
+  try {
+    const result = await scheduler.recalculateTodayDailyPlanForScheduleWrite({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      before: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "07:00",
+        targetArrivalTime: "06:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      after: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "07:00",
+        targetArrivalTime: "06:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        startNx: 98,
+        startNy: 76,
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      weatherServiceKey: "test-key",
+      now: new Date("2026-05-30T19:00:00.000Z"),
+    });
+
+    assert.equal(result.recalculated, false);
+    assert.equal(result.reason, "no_relevant_change");
+    assert.equal(calls.length, 0);
+  } finally {
+    calculator.calculateAndUpsertDailyPlan = originalCalculate;
+  }
+}
+
 async function main() {
   await assertPendingPlansAreCreatedForTodayOnly();
   await assertExistingCalculatedPlansAreNotOverwritten();
+  await assertExistingPlanIsRefreshedWhenScheduleChanged();
   await assertDuePendingPlansOnlyAreFinalized();
   await assertImpossibleFinalCalculationMarksFailed();
+  await assertTodayScheduleWriteRecalculatesTodayPlan();
+  await assertFutureScheduleWriteIsIgnored();
+  await assertCacheOnlyScheduleWriteIsIgnored();
   console.log("Scheduler service regression OK");
 }
 
