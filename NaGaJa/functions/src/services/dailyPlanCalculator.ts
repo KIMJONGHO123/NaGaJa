@@ -247,7 +247,6 @@ export const calculateAndUpsertDailyPlan = async (
   if (shouldUpdateScheduleCoords) {
     await scheduleRef.update({
       ...scheduleCoordUpdate,
-      updatedAt: Timestamp.now(),
     });
     trace("schedule_update_coords", { scheduleId: input.scheduleId });
   }

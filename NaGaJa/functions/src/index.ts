@@ -24,6 +24,7 @@ import { createMockSchedules } from "./services/scheduleService";
 import { runFullDailyPlanPipeline } from "./services/dailyPlanPipeline";
 import {
   calculateDuePendingDailyPlans,
+  cleanupOldDailyPlans,
   createPendingDailyPlansForToday,
   recalculateTodayDailyPlanForScheduleWrite,
 } from "./services/schedulerService";
@@ -320,6 +321,17 @@ export const generateDailyPlan = onRequest(async (req: Request, res: Response) =
 // ======================================================
 // 기능 7: 매일 04:00 KST dailyPlan PENDING 생성
 // ======================================================
+
+export const cleanupOldDailyPlansBeforeDawn = onSchedule(
+  {
+    schedule: "30 3 * * *",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const summary = await cleanupOldDailyPlans();
+    console.log("cleanupOldDailyPlansBeforeDawn summary", summary);
+  },
+);
 
 export const createDailyPlansAtDawn = onSchedule(
   {

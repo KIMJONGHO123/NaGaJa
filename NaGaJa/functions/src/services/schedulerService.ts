@@ -37,6 +37,14 @@ export interface FinalCalculationSummary {
   failures: string[];
 }
 
+export interface CleanupOldDailyPlansSummary {
+  cutoffDate: string;
+  checkedCount: number;
+  deletedCount: number;
+  failedCount: number;
+  failures: string[];
+}
+
 export interface ScheduleWriteRecalculationInput extends SchedulerInput {
   userId: string;
   scheduleId: string;
@@ -66,6 +74,32 @@ const dayOfWeekFromPlanDate = (planDate: string): number => {
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const subtractCalendarMonthsFromPlanDate = (
+  planDate: string,
+  months: number,
+): string => {
+  const [year, month, day] = planDate.split("-").map(Number);
+  const targetMonthIndex = month - 1 - months;
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(year, targetMonthIndex + 1, 0),
+  ).getUTCDate();
+  const cutoff = new Date(
+    Date.UTC(year, targetMonthIndex, Math.min(day, lastDayOfTargetMonth)),
+  );
+
+  return [
+    cutoff.getUTCFullYear(),
+    String(cutoff.getUTCMonth() + 1).padStart(2, "0"),
+    String(cutoff.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+};
+
+export const resolveDailyPlanCleanupCutoffDate = (
+  now: Date,
+  retentionMonths = 6,
+): string =>
+  subtractCalendarMonthsFromPlanDate(formatPlanDateKst(now), retentionMonths);
 
 const scheduleRecalculationFields: Array<keyof Schedule> = [
   "title",
@@ -277,6 +311,42 @@ export const createPendingDailyPlansForToday = async (
     } catch (error) {
       summary.failedCount += 1;
       summary.failures.push(`${userDoc.id}: ${errorMessage(error)}`);
+    }
+  }
+
+  return summary;
+};
+
+export const cleanupOldDailyPlans = async (
+  input: SchedulerInput = {},
+): Promise<CleanupOldDailyPlansSummary> => {
+  const db = getDb(input.db);
+  const now = input.now ?? new Date();
+  const cutoffDate = resolveDailyPlanCleanupCutoffDate(now);
+  const summary: CleanupOldDailyPlansSummary = {
+    cutoffDate,
+    checkedCount: 0,
+    deletedCount: 0,
+    failedCount: 0,
+    failures: [],
+  };
+
+  const oldPlansSnap = await db
+    .collectionGroup("dailyPlans")
+    .where("planDate", "<", cutoffDate)
+    .orderBy("planDate")
+    .limit(100)
+    .get();
+
+  summary.checkedCount = oldPlansSnap.docs.length;
+
+  for (const dailyPlanDoc of oldPlansSnap.docs) {
+    try {
+      await dailyPlanDoc.ref.delete();
+      summary.deletedCount += 1;
+    } catch (error) {
+      summary.failedCount += 1;
+      summary.failures.push(`${dailyPlanDoc.id}: ${errorMessage(error)}`);
     }
   }
 
