@@ -8,6 +8,7 @@ export type ResultStatus = "ON_TIME" | "LATE" | string;
 
 /** `users/{userId}/dailyPlans/{dailyPlanId}` 문서 */
 export interface DailyPlan {
+  dailyPlanId?: string;
   scheduleId: string;
   planDate: string;
   title: string;
@@ -43,6 +44,7 @@ export interface DailyPlan {
   arrivedAt?: Timestamp;
   actualTravelMinutes?: number;
   resultStatus?: ResultStatus;
+  sourceScheduleUpdatedAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

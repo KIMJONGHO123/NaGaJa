@@ -68,6 +68,11 @@ class FakeDocRef {
     this.db.docs.set(this.path, { ...previous, ...data });
     this.db.writes.push({ type: "update", path: this.path, data });
   }
+
+  async delete() {
+    this.db.docs.delete(this.path);
+    this.db.writes.push({ type: "delete", path: this.path });
+  }
 }
 
 class FakeCollectionRef {
@@ -95,36 +100,56 @@ class FakeCollectionRef {
 }
 
 class FakeQuery {
-  constructor(db, path, filters) {
+  constructor(db, path, filters, orderField = null, limitCount = null) {
     this.db = db;
     this.path = path;
     this.filters = filters;
+    this.orderField = orderField;
+    this.limitCount = limitCount;
   }
 
   where(field, op, value) {
     return new FakeQuery(this.db, this.path, [
       ...this.filters,
       { field, op, value },
-    ]);
+    ], this.orderField, this.limitCount);
+  }
+
+  orderBy(field) {
+    return new FakeQuery(this.db, this.path, this.filters, field, this.limitCount);
+  }
+
+  limit(count) {
+    return new FakeQuery(this.db, this.path, this.filters, this.orderField, count);
   }
 
   async get() {
-    return queryDocs(this.db, this.path, this.filters);
+    return queryDocs(this.db, this.path, this.filters, this.orderField, this.limitCount);
   }
 }
 
 class FakeCollectionGroupQuery {
-  constructor(db, collectionId, filters) {
+  constructor(db, collectionId, filters, orderField = null, limitCount = null) {
     this.db = db;
     this.collectionId = collectionId;
     this.filters = filters;
+    this.orderField = orderField;
+    this.limitCount = limitCount;
   }
 
   where(field, op, value) {
     return new FakeCollectionGroupQuery(this.db, this.collectionId, [
       ...this.filters,
       { field, op, value },
-    ]);
+    ], this.orderField, this.limitCount);
+  }
+
+  orderBy(field) {
+    return new FakeCollectionGroupQuery(this.db, this.collectionId, this.filters, field, this.limitCount);
+  }
+
+  limit(count) {
+    return new FakeCollectionGroupQuery(this.db, this.collectionId, this.filters, this.orderField, count);
   }
 
   async get() {
@@ -137,7 +162,7 @@ class FakeCollectionGroupQuery {
         }
       }
     }
-    return { empty: docs.length === 0, docs };
+    return applyQueryOptions(docs, this.orderField, this.limitCount);
   }
 }
 
@@ -156,7 +181,7 @@ class FakeDb {
   }
 }
 
-function queryDocs(db, collectionPath, filters) {
+function queryDocs(db, collectionPath, filters, orderField = null, limitCount = null) {
   const docs = [];
   const prefix = `${collectionPath}/`;
   for (const [path, data] of db.docs.entries()) {
@@ -167,13 +192,27 @@ function queryDocs(db, collectionPath, filters) {
       docs.push(new FakeDocSnapshot(remainder, new FakeDocRef(db, path), data));
     }
   }
-  return { empty: docs.length === 0, docs };
+  return applyQueryOptions(docs, orderField, limitCount);
+}
+
+function applyQueryOptions(docs, orderField, limitCount) {
+  let result = docs;
+  if (orderField) {
+    result = [...result].sort((left, right) =>
+      compareValues(left.get(orderField), right.get(orderField)),
+    );
+  }
+  if (limitCount != null) {
+    result = result.slice(0, limitCount);
+  }
+  return { empty: result.length === 0, docs: result };
 }
 
 function matchesFilters(data, filters) {
   return filters.every(({ field, op, value }) => {
     if (op === "==") return data[field] === value;
     if (op === "<=") return compareValues(data[field], value) <= 0;
+    if (op === "<") return compareValues(data[field], value) < 0;
     throw new Error(`Unsupported op ${op}`);
   });
 }
@@ -252,6 +291,7 @@ async function assertPendingPlansAreCreatedForTodayOnly() {
 
   assert.equal(result.planDate, "2026-05-31");
   assert.equal(result.createdCount, 1);
+  assert.equal(result.refreshedCount, 0);
   assert.equal(result.skippedCount, 0);
 
   const plan = db.docs.get("users/userA/dailyPlans/2026-05-31_scheduleA");
@@ -260,11 +300,53 @@ async function assertPendingPlansAreCreatedForTodayOnly() {
   assert.equal(plan.scheduleId, "scheduleA");
   assert.equal(plan.planDate, "2026-05-31");
   assert.equal(plan.planStatus, "PENDING");
+  assert.equal(plan.sourceScheduleUpdatedAt.toDate().toISOString(), "2026-05-01T00:00:00.000Z");
   assert.equal(plan.baseDepartureTime.toDate().toISOString(), "2026-05-30T20:30:00.000Z");
   assert.equal(plan.baseAlarmTime.toDate().toISOString(), "2026-05-30T19:50:00.000Z");
   assert.equal(plan.calculationTime.toDate().toISOString(), "2026-05-30T19:20:00.000Z");
   assert.equal(db.docs.has("users/userA/dailyPlans/2026-05-31_scheduleWrongDay"), false);
   assert.equal(db.docs.has("users/userB/dailyPlans/2026-05-31_scheduleInactive"), false);
+}
+
+async function assertFridayPlanIsNotCreatedWhenFridayScheduleWasDisabledOnTuesday() {
+  const seed = {
+    "users/userA": {
+      prepMinutes: 30,
+      defaultTravelMinutes: 40,
+      createdAt: toTimestamp("2026-06-01T00:00:00.000Z"),
+      updatedAt: toTimestamp("2026-06-01T00:00:00.000Z"),
+    },
+    "users/userA/schedules/fridaySchedule": {
+      title: "Friday Disabled",
+      dayOfWeek: 5,
+      classTime: "10:00",
+      targetArrivalTime: "09:55",
+      startPlaceName: "Home",
+      startAddress: "Home address",
+      destinationName: "School",
+      destinationAddress: "School address",
+      transportMode: "BUS",
+      isActive: false,
+      createdAt: toTimestamp("2026-06-01T00:00:00.000Z"),
+      updatedAt: toTimestamp("2026-06-09T03:00:00.000Z"),
+    },
+  };
+  const db = new FakeDb(seed);
+
+  const result = await scheduler.createPendingDailyPlansForToday({
+    db,
+    now: new Date("2026-06-11T19:00:00.000Z"),
+  });
+
+  assert.equal(result.planDate, "2026-06-12");
+  assert.equal(result.scheduleCount, 0);
+  assert.equal(result.createdCount, 0);
+  assert.equal(result.refreshedCount, 0);
+  assert.equal(result.skippedCount, 0);
+  assert.equal(
+    db.docs.has("users/userA/dailyPlans/2026-06-12_fridaySchedule"),
+    false,
+  );
 }
 
 async function assertExistingCalculatedPlansAreNotOverwritten() {
@@ -275,6 +357,7 @@ async function assertExistingCalculatedPlansAreNotOverwritten() {
     planDate: "2026-05-31",
     planStatus: "CALCULATED",
     calculationTime: toTimestamp("2026-05-30T19:20:00.000Z"),
+    sourceScheduleUpdatedAt: toTimestamp("2026-05-01T00:00:00.000Z"),
     createdAt: toTimestamp("2026-05-30T18:00:00.000Z"),
     updatedAt: toTimestamp("2026-05-30T18:00:00.000Z"),
   };
@@ -287,8 +370,52 @@ async function assertExistingCalculatedPlansAreNotOverwritten() {
 
   const plan = db.docs.get("users/userA/dailyPlans/2026-05-31_scheduleA");
   assert.equal(result.createdCount, 0);
+  assert.equal(result.refreshedCount, 0);
   assert.equal(result.skippedCount, 1);
   assert.equal(plan.planStatus, "CALCULATED");
+}
+
+async function assertExistingPlanIsRefreshedWhenScheduleChanged() {
+  const seed = baseSeed();
+  seed["users/userA/schedules/scheduleA"] = {
+    ...seed["users/userA/schedules/scheduleA"],
+    title: "Updated Early Class",
+    targetArrivalTime: "07:10",
+    updatedAt: toTimestamp("2026-05-30T10:00:00.000Z"),
+  };
+  seed["users/userA/dailyPlans/2026-05-31_scheduleA"] = {
+    dailyPlanId: "2026-05-31_scheduleA",
+    scheduleId: "scheduleA",
+    planDate: "2026-05-31",
+    title: "Early Class",
+    targetArrivalTime: "06:50",
+    planStatus: "CALCULATED",
+    departedAt: toTimestamp("2026-05-31T00:00:00.000Z"),
+    calculationTime: toTimestamp("2026-05-30T19:20:00.000Z"),
+    sourceScheduleUpdatedAt: toTimestamp("2026-05-01T00:00:00.000Z"),
+    createdAt: toTimestamp("2026-05-30T18:00:00.000Z"),
+    updatedAt: toTimestamp("2026-05-30T18:00:00.000Z"),
+  };
+  const db = new FakeDb(seed);
+
+  const result = await scheduler.createPendingDailyPlansForToday({
+    db,
+    now: new Date("2026-05-30T19:00:00.000Z"),
+  });
+
+  const plan = db.docs.get("users/userA/dailyPlans/2026-05-31_scheduleA");
+  assert.equal(result.createdCount, 0);
+  assert.equal(result.refreshedCount, 1);
+  assert.equal(result.skippedCount, 0);
+  assert.equal(plan.title, "Updated Early Class");
+  assert.equal(plan.targetArrivalTime, "07:10");
+  assert.equal(plan.planStatus, "PENDING");
+  assert.equal(plan.departedAt.toDate().toISOString(), "2026-05-31T00:00:00.000Z");
+  assert.equal(plan.createdAt.toDate().toISOString(), "2026-05-30T18:00:00.000Z");
+  assert.equal(plan.sourceScheduleUpdatedAt.toDate().toISOString(), "2026-05-30T10:00:00.000Z");
+  assert.equal(plan.baseDepartureTime.toDate().toISOString(), "2026-05-30T20:50:00.000Z");
+  assert.equal(plan.baseAlarmTime.toDate().toISOString(), "2026-05-30T20:10:00.000Z");
+  assert.equal(plan.calculationTime.toDate().toISOString(), "2026-05-30T19:40:00.000Z");
 }
 
 async function assertDuePendingPlansOnlyAreFinalized() {
@@ -355,6 +482,58 @@ async function assertDuePendingPlansOnlyAreFinalized() {
   }
 }
 
+async function assertOldDailyPlansCleanupDeletesAtMostOneHundred() {
+  const seed = baseSeed();
+  for (let i = 0; i < 105; i++) {
+    const day = String((i % 28) + 1).padStart(2, "0");
+    seed[`users/userA/dailyPlans/old_${String(i).padStart(3, "0")}`] = {
+      dailyPlanId: `old_${String(i).padStart(3, "0")}`,
+      scheduleId: "scheduleA",
+      planDate: `2025-11-${day}`,
+      planStatus: "CALCULATED",
+    };
+  }
+  seed["users/userA/dailyPlans/cutoff_day"] = {
+    dailyPlanId: "cutoff_day",
+    scheduleId: "scheduleA",
+    planDate: "2025-12-05",
+    planStatus: "CALCULATED",
+  };
+  seed["users/userA/dailyPlans/recent"] = {
+    dailyPlanId: "recent",
+    scheduleId: "scheduleA",
+    planDate: "2026-01-01",
+    planStatus: "CALCULATED",
+  };
+  const db = new FakeDb(seed);
+
+  const result = await scheduler.cleanupOldDailyPlans({
+    db,
+    now: new Date("2026-06-04T19:00:00.000Z"),
+  });
+
+  assert.equal(result.cutoffDate, "2025-12-05");
+  assert.equal(result.checkedCount, 100);
+  assert.equal(result.deletedCount, 100);
+  assert.equal(result.failedCount, 0);
+  assert.equal(db.writes.filter((write) => write.type === "delete").length, 100);
+  assert.equal(db.docs.has("users/userA/dailyPlans/cutoff_day"), true);
+  assert.equal(db.docs.has("users/userA/dailyPlans/recent"), true);
+  assert.equal(
+    [...db.docs.values()].filter((data) => String(data.planDate).startsWith("2025-11")).length,
+    5,
+  );
+}
+
+async function assertCleanupCutoffClampsShortMonths() {
+  assert.equal(
+    scheduler.resolveDailyPlanCleanupCutoffDate(
+      new Date("2026-08-30T19:00:00.000Z"),
+    ),
+    "2026-02-28",
+  );
+}
+
 async function assertImpossibleFinalCalculationMarksFailed() {
   const seed = baseSeed();
   seed["users/userA/dailyPlans/2026-05-31_scheduleDue"] = {
@@ -387,11 +566,188 @@ async function assertImpossibleFinalCalculationMarksFailed() {
   }
 }
 
+async function assertTodayScheduleWriteRecalculatesTodayPlan() {
+  const originalCalculate = calculator.calculateAndUpsertDailyPlan;
+  const calls = [];
+  calculator.calculateAndUpsertDailyPlan = async (input) => {
+    calls.push(input);
+    return {
+      dailyPlanId: `${input.planDate}_${input.scheduleId}`,
+      plan: { planStatus: "CALCULATED" },
+    };
+  };
+
+  try {
+    const result = await scheduler.recalculateTodayDailyPlanForScheduleWrite({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      before: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "07:00",
+        targetArrivalTime: "06:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      after: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "08:00",
+        targetArrivalTime: "07:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      weatherServiceKey: "test-key",
+      now: new Date("2026-05-30T19:00:00.000Z"),
+    });
+
+    assert.equal(result.recalculated, true);
+    assert.equal(result.reason, "recalculated");
+    assert.deepEqual(
+      calls.map((call) => ({
+        userId: call.userId,
+        scheduleId: call.scheduleId,
+        planDate: call.planDate,
+        weatherServiceKey: call.weatherServiceKey,
+      })),
+      [
+        {
+          userId: "userA",
+          scheduleId: "scheduleA",
+          planDate: "2026-05-31",
+          weatherServiceKey: "test-key",
+        },
+      ],
+    );
+  } finally {
+    calculator.calculateAndUpsertDailyPlan = originalCalculate;
+  }
+}
+
+async function assertFutureScheduleWriteIsIgnored() {
+  const originalCalculate = calculator.calculateAndUpsertDailyPlan;
+  const calls = [];
+  calculator.calculateAndUpsertDailyPlan = async (input) => {
+    calls.push(input);
+    return {
+      dailyPlanId: `${input.planDate}_${input.scheduleId}`,
+      plan: { planStatus: "CALCULATED" },
+    };
+  };
+
+  try {
+    const result = await scheduler.recalculateTodayDailyPlanForScheduleWrite({
+      userId: "userA",
+      scheduleId: "scheduleWrongDay",
+      before: {
+        title: "Wrong Day",
+        dayOfWeek: 1,
+        classTime: "09:00",
+        targetArrivalTime: "08:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      after: {
+        title: "Wrong Day",
+        dayOfWeek: 1,
+        classTime: "10:00",
+        targetArrivalTime: "09:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      weatherServiceKey: "test-key",
+      now: new Date("2026-05-30T19:00:00.000Z"),
+    });
+
+    assert.equal(result.recalculated, false);
+    assert.equal(result.reason, "not_today");
+    assert.equal(calls.length, 0);
+  } finally {
+    calculator.calculateAndUpsertDailyPlan = originalCalculate;
+  }
+}
+
+async function assertCacheOnlyScheduleWriteIsIgnored() {
+  const originalCalculate = calculator.calculateAndUpsertDailyPlan;
+  const calls = [];
+  calculator.calculateAndUpsertDailyPlan = async (input) => {
+    calls.push(input);
+    return {
+      dailyPlanId: `${input.planDate}_${input.scheduleId}`,
+      plan: { planStatus: "CALCULATED" },
+    };
+  };
+
+  try {
+    const result = await scheduler.recalculateTodayDailyPlanForScheduleWrite({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      before: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "07:00",
+        targetArrivalTime: "06:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      after: {
+        title: "Early Class",
+        dayOfWeek: 7,
+        classTime: "07:00",
+        targetArrivalTime: "06:55",
+        startPlaceName: "Home",
+        startAddress: "Home address",
+        startNx: 98,
+        startNy: 76,
+        destinationName: "School",
+        destinationAddress: "School address",
+        transportMode: "BUS",
+        isActive: true,
+      },
+      weatherServiceKey: "test-key",
+      now: new Date("2026-05-30T19:00:00.000Z"),
+    });
+
+    assert.equal(result.recalculated, false);
+    assert.equal(result.reason, "no_relevant_change");
+    assert.equal(calls.length, 0);
+  } finally {
+    calculator.calculateAndUpsertDailyPlan = originalCalculate;
+  }
+}
+
 async function main() {
   await assertPendingPlansAreCreatedForTodayOnly();
+  await assertFridayPlanIsNotCreatedWhenFridayScheduleWasDisabledOnTuesday();
   await assertExistingCalculatedPlansAreNotOverwritten();
+  await assertExistingPlanIsRefreshedWhenScheduleChanged();
   await assertDuePendingPlansOnlyAreFinalized();
   await assertImpossibleFinalCalculationMarksFailed();
+  await assertOldDailyPlansCleanupDeletesAtMostOneHundred();
+  await assertCleanupCutoffClampsShortMonths();
+  await assertTodayScheduleWriteRecalculatesTodayPlan();
+  await assertFutureScheduleWriteIsIgnored();
+  await assertCacheOnlyScheduleWriteIsIgnored();
   console.log("Scheduler service regression OK");
 }
 

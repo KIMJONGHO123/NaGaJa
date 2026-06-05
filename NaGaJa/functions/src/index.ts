@@ -11,6 +11,7 @@
 import * as admin from "firebase-admin";
 import { defineString } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onRequest,Request } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Response } from "firebase-functions";
@@ -23,7 +24,9 @@ import { createMockSchedules } from "./services/scheduleService";
 import { runFullDailyPlanPipeline } from "./services/dailyPlanPipeline";
 import {
   calculateDuePendingDailyPlans,
+  cleanupOldDailyPlans,
   createPendingDailyPlansForToday,
+  recalculateTodayDailyPlanForScheduleWrite,
 } from "./services/schedulerService";
 
 
@@ -319,6 +322,17 @@ export const generateDailyPlan = onRequest(async (req: Request, res: Response) =
 // 기능 7: 매일 04:00 KST dailyPlan PENDING 생성
 // ======================================================
 
+export const cleanupOldDailyPlansBeforeDawn = onSchedule(
+  {
+    schedule: "30 3 * * *",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const summary = await cleanupOldDailyPlans();
+    console.log("cleanupOldDailyPlansBeforeDawn summary", summary);
+  },
+);
+
 export const createDailyPlansAtDawn = onSchedule(
   {
     schedule: "0 4 * * *",
@@ -344,5 +358,28 @@ export const calculatePendingDailyPlans = onSchedule(
       weatherServiceKey: weatherServiceKey.value(),
     });
     console.log("calculatePendingDailyPlans summary", summary);
+  },
+);
+
+// ======================================================
+// 기능 9: 당일 schedule 변경 시 오늘 dailyPlan 즉시 재계산
+// ======================================================
+
+export const recalculateTodayDailyPlanOnScheduleWrite = onDocumentWritten(
+  "users/{userId}/schedules/{scheduleId}",
+  async (event) => {
+    const result = await recalculateTodayDailyPlanForScheduleWrite({
+      userId: event.params.userId,
+      scheduleId: event.params.scheduleId,
+      before: event.data?.before.data(),
+      after: event.data?.after.data(),
+      weatherServiceKey: weatherServiceKey.value(),
+    });
+
+    console.log("recalculateTodayDailyPlanOnScheduleWrite result", {
+      userId: event.params.userId,
+      scheduleId: event.params.scheduleId,
+      ...result,
+    });
   },
 );

@@ -1,7 +1,9 @@
+import * as admin from "firebase-admin";
 import type { CalculateDailyPlanResult } from "./dailyPlanCalculator";
 import {
   calculateAndUpsertDailyPlan,
   calculateDailyPlansForUser,
+  resolveNextSchedulePlanDate,
   resolvePlanDate,
 } from "./dailyPlanCalculator";
 import {
@@ -33,13 +35,40 @@ export interface RunFullDailyPlanPipelineResult {
   summary: PipelineStepSummary;
 }
 
+const resolvePipelinePlanDate = async (
+  input: RunFullDailyPlanPipelineInput,
+): Promise<string> => {
+  if (input.planDate) {
+    return resolvePlanDate(input.planDate);
+  }
+
+  if (!input.scheduleId) {
+    return resolvePlanDate();
+  }
+
+  const scheduleSnap = await admin
+    .firestore()
+    .collection("users")
+    .doc(input.userId)
+    .collection("schedules")
+    .doc(input.scheduleId)
+    .get();
+
+  if (!scheduleSnap.exists) {
+    throw new Error(`Schedule ${input.scheduleId} not found`);
+  }
+
+  const dayOfWeek = Number(scheduleSnap.data()?.dayOfWeek);
+  return resolveNextSchedulePlanDate(new Date(), dayOfWeek);
+};
+
 /**
  * 일일 플랜 전체 파이프라인. 진행 추적은 PipelineTracer가 담당.
  */
 export const runFullDailyPlanPipeline = async (
   input: RunFullDailyPlanPipelineInput,
 ): Promise<RunFullDailyPlanPipelineResult> => {
-  const planDate = resolvePlanDate(input.planDate);
+  const planDate = await resolvePipelinePlanDate(input);
   const tracer = new PipelineTracer(input.onStep);
 
   const results = input.scheduleId

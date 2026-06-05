@@ -20,6 +20,7 @@ const weatherExtract = require("../lib/weather/weather.extract.js");
 const transitService = require("../lib/weather/transit/transit.service.js");
 const gridUtils = require("../lib/weather/utils/grid.utils.js");
 const calculator = require("../lib/services/dailyPlanCalculator.js");
+const pipeline = require("../lib/services/dailyPlanPipeline.js");
 
 const toKstIso = (date) => date.toISOString();
 
@@ -221,6 +222,30 @@ function assertWeatherDetailFallbackPolicy() {
   );
 }
 
+function assertNextSchedulePlanDateResolution() {
+  assert.equal(
+    calculator.resolveNextSchedulePlanDate(
+      new Date("2026-06-01T13:38:00.000Z"),
+      2,
+    ),
+    "2026-06-02",
+  );
+  assert.equal(
+    calculator.resolveNextSchedulePlanDate(
+      new Date("2026-06-01T13:38:00.000Z"),
+      1,
+    ),
+    "2026-06-01",
+  );
+  assert.equal(
+    calculator.resolveNextSchedulePlanDate(
+      new Date("2026-06-06T13:38:00.000Z"),
+      1,
+    ),
+    "2026-06-08",
+  );
+}
+
 function createFakeDb(overrides = {}) {
   const Timestamp = admin.firestore.Timestamp;
   const writes = [];
@@ -229,6 +254,7 @@ function createFakeDb(overrides = {}) {
   const userData = {
     prepMinutes: 30,
     defaultTravelMinutes: 60,
+    ...overrides.userData,
   };
   const scheduleData = {
     title: "Logic Test",
@@ -305,6 +331,159 @@ function createFakeDb(overrides = {}) {
   };
 
   return { db, writes, scheduleUpdates, Timestamp };
+}
+
+async function assertPipelineUsesNextScheduleDateWhenNowIsPreviousDayNight() {
+  const { db, writes, Timestamp } = createFakeDb({
+    userData: {
+      prepMinutes: 20,
+      defaultTravelMinutes: 45,
+    },
+    scheduleData: {
+      dayOfWeek: 2,
+      classTime: "11:00",
+      targetArrivalTime: "10:55",
+    },
+  });
+  const originalFirestoreDescriptor = Object.getOwnPropertyDescriptor(
+    admin,
+    "firestore",
+  );
+  const originalGetWeather = weatherService.getWeather;
+  const originalExtractWeatherForecastItems = weatherExtract.extractWeatherForecastItems;
+  const originalGetTransitRoutes = transitService.getTransitRoutes;
+  const originalWarn = console.warn;
+  const OriginalDate = globalThis.Date;
+
+  class FakeDate extends OriginalDate {
+    constructor(...args) {
+      if (args.length === 0) {
+        super("2026-06-01T13:38:00.000Z");
+      } else {
+        super(...args);
+      }
+    }
+
+    static now() {
+      return new OriginalDate("2026-06-01T13:38:00.000Z").getTime();
+    }
+  }
+  Object.setPrototypeOf(FakeDate, OriginalDate);
+
+  Object.defineProperty(admin, "firestore", {
+    value: Object.assign(() => db, { Timestamp }),
+    configurable: true,
+  });
+  weatherService.getWeather = async () => ({});
+  weatherExtract.extractWeatherForecastItems = () => [
+    {
+      baseDate: "20260602",
+      baseTime: "0500",
+      category: "PTY",
+      fcstDate: "20260602",
+      fcstTime: "1000",
+      fcstValue: "0",
+      nx: 98,
+      ny: 76,
+    },
+  ];
+  transitService.getTransitRoutes = async () => {
+    throw new Error("forced transit failure");
+  };
+  console.warn = () => undefined;
+  globalThis.Date = FakeDate;
+
+  try {
+    const result = await pipeline.runFullDailyPlanPipeline({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      weatherServiceKey: "test-key",
+    });
+
+    assert.equal(result.planDate, "2026-06-02");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].data.planDate, "2026-06-02");
+    assert.equal(writes[0].data.dayOfWeek, 2);
+    assert.equal(
+      toKstIso(writes[0].data.baseDepartureTime.toDate()),
+      "2026-06-02T01:10:00.000Z",
+    );
+    assert.equal(
+      toKstIso(writes[0].data.baseAlarmTime.toDate()),
+      "2026-06-02T00:50:00.000Z",
+    );
+    assert.equal(
+      toKstIso(writes[0].data.calculationTime.toDate()),
+      "2026-06-02T00:20:00.000Z",
+    );
+  } finally {
+    globalThis.Date = OriginalDate;
+    if (originalFirestoreDescriptor) {
+      Object.defineProperty(admin, "firestore", originalFirestoreDescriptor);
+    } else {
+      delete admin.firestore;
+    }
+    weatherService.getWeather = originalGetWeather;
+    weatherExtract.extractWeatherForecastItems = originalExtractWeatherForecastItems;
+    transitService.getTransitRoutes = originalGetTransitRoutes;
+    console.warn = originalWarn;
+  }
+}
+
+async function assertExplicitPlanDateOverridesScheduleDayResolution() {
+  const { db, writes, Timestamp } = createFakeDb({
+    userData: {
+      prepMinutes: 20,
+      defaultTravelMinutes: 45,
+    },
+    scheduleData: {
+      dayOfWeek: 2,
+      classTime: "11:00",
+      targetArrivalTime: "10:55",
+    },
+  });
+  const originalFirestoreDescriptor = Object.getOwnPropertyDescriptor(
+    admin,
+    "firestore",
+  );
+  const originalGetWeather = weatherService.getWeather;
+  const originalExtractWeatherForecastItems = weatherExtract.extractWeatherForecastItems;
+  const originalGetTransitRoutes = transitService.getTransitRoutes;
+  const originalWarn = console.warn;
+
+  Object.defineProperty(admin, "firestore", {
+    value: Object.assign(() => db, { Timestamp }),
+    configurable: true,
+  });
+  weatherService.getWeather = async () => ({});
+  weatherExtract.extractWeatherForecastItems = () => [];
+  transitService.getTransitRoutes = async () => {
+    throw new Error("forced transit failure");
+  };
+  console.warn = () => undefined;
+
+  try {
+    const result = await pipeline.runFullDailyPlanPipeline({
+      userId: "userA",
+      scheduleId: "scheduleA",
+      planDate: "2026-06-09",
+      weatherServiceKey: "test-key",
+    });
+
+    assert.equal(result.planDate, "2026-06-09");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].data.planDate, "2026-06-09");
+  } finally {
+    if (originalFirestoreDescriptor) {
+      Object.defineProperty(admin, "firestore", originalFirestoreDescriptor);
+    } else {
+      delete admin.firestore;
+    }
+    weatherService.getWeather = originalGetWeather;
+    weatherExtract.extractWeatherForecastItems = originalExtractWeatherForecastItems;
+    transitService.getTransitRoutes = originalGetTransitRoutes;
+    console.warn = originalWarn;
+  }
 }
 
 async function assertFallbackAndWeatherQueryBasis() {
@@ -618,10 +797,13 @@ async function main() {
   assertWeatherAdjustments();
   assertRouteSelection();
   assertWeatherDetailFallbackPolicy();
+  assertNextSchedulePlanDateResolution();
   await assertFallbackAndWeatherQueryBasis();
   await assertSelectedBusRouteNoIsPersisted();
   await assertStartGridIsRefreshedWithoutGeocoding();
   await assertMissingCoordsAreGeocodedIndependently();
+  await assertPipelineUsesNextScheduleDateWhenNowIsPreviousDayNight();
+  await assertExplicitPlanDateOverridesScheduleDayResolution();
 
   console.log("Alarm calculation logic regression OK");
 }
