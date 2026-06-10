@@ -2,6 +2,9 @@
 
 Flutter + Firebase 기반 스마트 알람 · 출결 관리 앱 초기 세팅 문서입니다.
 
+## 프로젝트 전체 구조 사진
+<img width="2752" height="1536" alt="스마트_동적_알람_시스템_나가자" src="https://github.com/user-attachments/assets/a49532c7-33bb-48b7-ba01-82b2c15f2c90" />
+
 ---
 
 ## 프로젝트 구조
