@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
+import '../../services/auth_service.dart';
 import '../../services/kakao_address_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/wifi_attendance_service.dart';
@@ -87,6 +88,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           _header('기기 연결'),
           _buildDeviceCard(),
+          const SizedBox(height: 16),
+          _header('계정'),
+          _buildAccountCard(),
           const SizedBox(height: 32),
         ],
       ),
@@ -461,6 +465,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  // ── 계정 (로그아웃 / 회원 탈퇴) ───────────────────────────────────────────────
+  Widget _buildAccountCard() {
+    return _card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.black54),
+            title: const Text('로그아웃'),
+            onTap: _confirmLogout,
+          ),
+          const Divider(height: 1, indent: 16),
+          ListTile(
+            leading: const Icon(Icons.person_remove_outlined, color: Colors.red),
+            title: const Text('회원 탈퇴', style: TextStyle(color: Colors.red)),
+            subtitle: const Text(
+              '모든 데이터가 삭제되며 되돌릴 수 없습니다',
+              style: TextStyle(fontSize: 12),
+            ),
+            onTap: _confirmDeleteAccount,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmLogout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('로그아웃'),
+        content: const Text('로그아웃 하시겠어요?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('로그아웃'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      WifiAttendanceService.instance.stop();
+      await AuthService.signOut();
+      await SettingsService.instance.clearLocal();
+      // _AuthGate가 authStateChanges를 감지해 로그인 화면으로 전환.
+    } catch (e) {
+      _snack('로그아웃 중 오류가 발생했습니다: $e');
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('회원 탈퇴'),
+        content: const Text(
+          '정말 탈퇴하시겠어요?\n\n'
+          '시간표·출결 기록 등 모든 데이터가 영구 삭제되며 되돌릴 수 없습니다.\n'
+          '계속하려면 Google 재인증이 필요합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('탈퇴', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    // 1) 재인증 먼저 — 취소되면 아무것도 삭제하지 않음 (데이터만 지워지고 계정이 남는 사고 방지).
+    bool reauthed;
+    try {
+      reauthed = await AuthService.reauthenticateWithGoogle();
+    } catch (e) {
+      _snack('재인증 중 오류가 발생했습니다: $e');
+      return;
+    }
+    if (!reauthed) {
+      _snack('탈퇴가 취소되었습니다.');
+      return;
+    }
+    if (!mounted) return;
+
+    // 진행 다이얼로그 — 위젯이 사라져도 닫을 수 있도록 navigator를 미리 캡처.
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+
+    try {
+      WifiAttendanceService.instance.stop();
+      // 2) Firestore 데이터 삭제 (로그인 상태)
+      await SettingsService.instance.deleteAllUserData();
+      // 3) Auth 계정 삭제 → authStateChanges가 로그인 화면으로 전환
+      await AuthService.deleteCurrentUser();
+      // 4) 로컬 정리
+      await SettingsService.instance.clearLocal();
+      try {
+        navigator.pop(); // 진행 다이얼로그 닫기
+      } catch (_) {}
+    } catch (e) {
+      try {
+        navigator.pop();
+      } catch (_) {}
+      _snack('회원 탈퇴 중 오류가 발생했습니다: $e');
+    }
   }
 }
 

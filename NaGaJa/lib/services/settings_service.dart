@@ -65,6 +65,16 @@ class SettingsService extends ChangeNotifier {
   CollectionReference? get _schedulesCol =>
       _userDoc?.collection('schedules');
 
+  /// users/{uid} 하위 서브컬렉션 목록 — **단일 출처(single source of truth)**.
+  /// ⚠️ 새 서브컬렉션을 추가하면 반드시 여기에도 추가할 것.
+  ///    (회원 탈퇴 시 이 목록을 순회해 삭제하므로, 누락되면 고아 데이터가 남는다.)
+  static const List<String> userSubcollections = [
+    'schedules',
+    'dailyPlans',
+    'arrivalLogs',
+    'prepLogs',
+  ];
+
   // ── 앱 시작 시 로드 ──────────────────────────────────────────────────────────
   Future<void> load() async {
     if (_loaded) return;
@@ -374,6 +384,46 @@ class SettingsService extends ChangeNotifier {
       schoolWifiSsids: prefs.getStringList('schoolWifiSsids') ?? [],
     );
     schedules = []; // 오프라인 시 스케줄 없음
+  }
+
+  // ── 회원 탈퇴: Firestore 데이터 일괄 삭제 ────────────────────────────────────
+  /// users/{uid}의 모든 서브컬렉션 + 본 문서를 삭제.
+  /// ⚠️ 로그인 상태에서(Auth 계정 삭제 전에) 호출해야 보안 규칙 통과.
+  Future<void> deleteAllUserData() async {
+    final doc = _userDoc;
+    if (doc == null) return;
+    for (final name in userSubcollections) {
+      await _deleteCollection(doc.collection(name));
+    }
+    await doc.delete();
+  }
+
+  /// 컬렉션의 모든 문서를 배치(최대 500 제한)로 나눠 삭제.
+  Future<void> _deleteCollection(CollectionReference col) async {
+    while (true) {
+      final snap = await col.limit(450).get();
+      if (snap.docs.isEmpty) break;
+      final batch = _db.batch();
+      for (final d in snap.docs) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+      if (snap.docs.length < 450) break;
+    }
+  }
+
+  // ── 로컬 캐시/상태 초기화 (로그아웃·회원 탈퇴 시) ─────────────────────────────
+  Future<void> clearLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('prepMinutes');
+    await prefs.remove('defaultTravelMinutes');
+    await prefs.remove('homeWifiSsids');
+    await prefs.remove('schoolWifiSsids');
+    await prefs.remove(_prepStartedAtKey);
+    userModel = null;
+    schedules = [];
+    _loaded = false;
+    notifyListeners();
   }
 
   UserModel _defaultModel() => UserModel(

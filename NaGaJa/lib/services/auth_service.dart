@@ -31,4 +31,34 @@ class AuthService {
     await _googleSignIn.signOut();
     await _auth.signOut();
   }
+
+  /// 회원 탈퇴 전 Google 재인증.
+  /// Firebase는 계정 삭제 같은 민감 작업 전 최근 로그인을 요구한다.
+  /// 반환: true=재인증 성공, false=사용자가 재로그인 취소.
+  static Future<bool> reauthenticateWithGoogle() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+
+    final googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) return false; // 사용자가 취소
+
+    final googleAuth = await googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+    await user.reauthenticateWithCredential(credential);
+    return true;
+  }
+
+  /// Auth 계정 삭제.
+  /// ⚠️ 반드시 재인증(reauthenticateWithGoogle) + Firestore 데이터 삭제를 선행한 뒤 호출.
+  static Future<void> deleteCurrentUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    await user.delete();
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
+  }
 }
