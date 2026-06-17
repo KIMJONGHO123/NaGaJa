@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
+import '../../services/ble_service.dart';
 import '../../services/kakao_address_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/wifi_attendance_service.dart';
@@ -24,11 +25,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     SettingsService.instance.addListener(_onChanged);
+    BleService.instance.addListener(_onChanged);
   }
 
   @override
   void dispose() {
     SettingsService.instance.removeListener(_onChanged);
+    BleService.instance.removeListener(_onChanged);
     super.dispose();
   }
 
@@ -446,26 +449,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildDeviceCard() {
-    return _card(
-      child: ListTile(
-        leading: const Icon(Icons.bluetooth, color: Colors.blue),
-        title: const Text('물리 알람시계'),
-        subtitle: const Text('연결되지 않음', style: TextStyle(color: Colors.grey)),
-        trailing: ElevatedButton(
-          onPressed: () => ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('BLE 스캔 중...'))),
+    final ble = BleService.instance;
+
+    final String subtitle;
+    final Color subtitleColor;
+    final Widget trailing;
+
+    switch (ble.state) {
+      case BleState.scanning:
+        subtitle = '스캔 중...';
+        subtitleColor = Colors.blue;
+        trailing = const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        );
+      case BleState.connecting:
+        subtitle = '연결 중...';
+        subtitleColor = Colors.blue;
+        trailing = const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        );
+      case BleState.connected:
+        subtitle = '연결됨 · ${ble.deviceName ?? _piName}';
+        subtitleColor = Colors.green;
+        trailing = TextButton(
+          onPressed: () => BleService.instance.disconnect(),
+          child: const Text('연결 해제', style: TextStyle(color: Colors.red)),
+        );
+      case BleState.failed:
+        subtitle = '기기를 찾지 못했습니다';
+        subtitleColor = Colors.red;
+        trailing = ElevatedButton(
+          onPressed: () => BleService.instance.scanAndConnect(),
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('다시 시도'),
+        );
+      case BleState.idle:
+        subtitle = '연결 안됨';
+        subtitleColor = Colors.grey;
+        trailing = ElevatedButton(
+          onPressed: () => BleService.instance.scanAndConnect(),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
           child: const Text('연결'),
+        );
+    }
+
+    return _card(
+      child: ListTile(
+        leading: Icon(
+          Icons.bluetooth,
+          color: ble.isConnected ? Colors.blue : Colors.grey,
         ),
+        title: const Text('물리 알람시계 (라즈베리파이)'),
+        subtitle: Text(subtitle, style: TextStyle(color: subtitleColor)),
+        trailing: trailing,
       ),
     );
   }
+
+  static const _piName = 'NaGaJa-Pi';
 
   // ── 계정 (로그아웃 / 회원 탈퇴) ───────────────────────────────────────────────
   Widget _buildAccountCard() {

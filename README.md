@@ -394,71 +394,60 @@ Firestore 에뮬레이터에서 `finalAlarmTime`을 **현재 시각 + 1~2분**�
 
 ```
 [모바일 앱]  ──BLE──▶  [라즈베리파이]  ──Wi-Fi──▶  [Firestore]
-               사용자 정보              dailyPlans 구독
-               (userId, 초기 설정)      finalAlarmTime 읽기
+               userId                  dailyPlans 실시간 구독
+               (초기 1회 전달)          finalAlarmTime 감시
                                                 │
                                           알람 시각 도달
                                                 │
-                                       NeoPixel LED 점등
-                                       OLED 시각 표시
-                                       부저 알람
+                                       LED 점등 + 부저 알람
 ```
 
-- **BLE** (앱 → Pi): 라즈베리파이가 어떤 사용자의 플랜을 볼지 결정하는 `userId` 등 사용자 정보를 전달합니다. 초기 페어링 시 1회 수행합니다.
-- **Wi-Fi → Firestore** (Pi 상시): 사용자 정보를 받은 뒤 라즈베리파이가 직접 Firestore에 Wi-Fi로 접속해 `dailyPlans`를 구독하고, `finalAlarmTime`에 맞춰 물리 알람을 동작시킵니다.
-
-> **현재 상태**: BLE 사용자 정보 전달 미구현. Wi-Fi → Firestore 직접 연결 방식으로 테스트 가능합니다.
+- **BLE** (앱 → Pi): 앱 설정 화면의 "연결" 버튼을 누르면 `userId`를 Pi로 전송합니다. 초기 1회만 수행하면 Pi가 `user_id.txt`에 저장합니다.
+- **Wi-Fi → Firestore** (Pi 상시): `userId`를 받은 Pi가 직접 Firestore의 `dailyPlans`를 실시간 구독해 `finalAlarmTime`에 GPIO로 물리 알람을 동작시킵니다.
 
 ---
 
-**라즈베리파이 테스트 (Wi-Fi → Firestore 직접 연결):**
-
-Firebase Admin SDK로 Firestore에서 `finalAlarmTime`을 읽어 GPIO를 제어합니다.
+**라즈베리파이 초기 설정:**
 
 ```bash
-# 라즈베리파이에서 실행
-pip3 install firebase-admin
-```
+# 1. 시스템 패키지
+sudo apt-get update
+sudo apt-get install -y bluetooth bluez python3-pip
 
-```python
-import firebase_admin
-from firebase_admin import credentials, firestore
-from datetime import datetime
-import time
+# 2. Python 의존성
+cd raspberry_pi
+pip3 install -r requirements.txt
 
+# 3. Firebase 서비스 계정 키 배치
 # Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성
-cred = credentials.Certificate('serviceAccountKey.json')
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
-USER_ID = 'BLE로 받아온 userId'  # BLE 미구현 시 직접 입력
-TODAY = datetime.now().strftime('%Y-%m-%d')
-
-# 오늘 dailyPlans 구독 — Firestore가 변경되면 자동으로 콜백 호출
-def on_plans_update(col_snapshot, changes, read_time):
-    for doc in col_snapshot:
-        data = doc.to_dict()
-        alarm_ts = data.get('finalAlarmTime')
-        if alarm_ts:
-            alarm_dt = alarm_ts.astimezone()
-            print(f"[Pi] 알람 예약: {alarm_dt}")
-            # alarm_dt까지 대기 후 GPIO 제어
-            # import RPi.GPIO as GPIO
-            # GPIO.output(BUZZER_PIN, GPIO.HIGH)
-            # neopixel 점등 등
-
-col_ref = db.collection('users').document(USER_ID).collection('dailyPlans')
-watch = col_ref.on_snapshot(on_plans_update)
-
-print("Firestore 구독 중... Ctrl+C로 종료")
-try:
-    while True:
-        time.sleep(1)
-except KeyboardInterrupt:
-    watch.unsubscribe()
+# 다운로드한 파일을 raspberry_pi/serviceAccountKey.json 으로 저장
 ```
 
-> `serviceAccountKey.json`은 Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성에서 발급합니다. **절대 커밋하지 마세요.**
+> `serviceAccountKey.json`은 절대 커밋하지 마세요 (`.gitignore`에 포함).
+
+---
+
+**라즈베리파이 실행 순서:**
+
+```bash
+# 터미널 1 — BLE 서버 (앱 연결 대기)
+sudo python3 raspberry_pi/ble_receiver.py
+# → "NaGaJa-Pi BLE GATT 서버 시작" 메시지 확인
+
+# 터미널 2 — 알람 실행기 (Firestore 구독 + GPIO 제어)
+python3 raspberry_pi/alarm_runner.py
+# → userId가 없으면 "ble_receiver.py를 먼저 실행하세요" 안내 출력
+```
+
+---
+
+**앱에서 연결:**
+
+1. 앱 실행 → **설정** 탭 → **기기 연결** 섹션
+2. **연결** 버튼 탭 → BLE 스캔 시작 (최대 10초)
+3. `NaGaJa-Pi` 발견 시 자동 연결 → `userId` 전송
+4. Pi 터미널에서 `[BLE] userId 수신 및 저장 완료: xxx` 로그 확인
+5. `alarm_runner.py`가 실행 중이면 즉시 Firestore 구독 시작
 
 ---
 
