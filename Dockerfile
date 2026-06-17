@@ -15,6 +15,7 @@ WORKDIR /workspace/functions
 COPY NaGaJa/functions/package*.json ./
 RUN npm ci
 COPY NaGaJa/functions/src ./src
+COPY NaGaJa/functions/data ./data
 COPY NaGaJa/functions/tsconfig.json ./
 RUN npm run build
 

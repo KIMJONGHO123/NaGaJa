@@ -22,32 +22,202 @@ Flutter + Firebase 기반 스마트 알람 · 출결 관리 앱입니다.
 
 ---
 
-## 빠른 시작 (Docker)
+## Docker로 테스트하기 (처음부터 상세)
 
-> Docker Desktop이 설치되어 있어야 합니다.
+### 사전 준비
+
+**필수 설치 목록:**
+
+| 도구 | 설치 경로 | 확인 명령 |
+|------|-----------|-----------|
+| Docker Desktop | https://www.docker.com/products/docker-desktop/ | `docker --version` |
+| Git | https://git-scm.com/ | `git --version` |
+
+> **Windows 사용자**: Docker Desktop 설치 후 반드시 실행(트레이 아이콘 확인)해야 합니다.
+
+---
+
+### 1단계 — 저장소 클론
 
 ```bash
-# 1. 저장소 클론
 git clone <repository-url>
 cd NaGaJa
-
-# 2. 환경 변수 설정
-cp .env.example .env
-# .env 파일을 열어 실제 API 키 입력
-
-# 3. 백엔드(Firebase 에뮬레이터) 실행
-docker compose up -d
-
-# 4. 접속 확인
-# Firebase Emulator UI : http://localhost:4000
-# Cloud Functions      : http://localhost:5001
-# Firestore Emulator   : http://localhost:8080
-# Auth Emulator        : http://localhost:9099
 ```
 
-종료:
+클론 후 폴더 구조를 확인합니다:
+```
+NaGaJa/
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example       ← 이 파일이 있어야 합니다
+└── NaGaJa/
+    └── functions/
+        └── data/
+            └── bus-congestion-busan.csv   ← 혼잡도 데이터
+```
+
+---
+
+### 2단계 — 환경 변수 설정
+
+`.env.example`을 복사해 `.env`를 만들고 실제 API 키를 입력합니다.
+
+**Windows (PowerShell):**
+```powershell
+copy .env.example .env
+notepad .env
+```
+
+**macOS / Linux:**
 ```bash
+cp .env.example .env
+nano .env  # 또는 원하는 에디터로 열기
+```
+
+`.env` 파일 내용:
+```env
+WEATHER_SERVICE_KEY=발급받은_기상청_API_키
+TMAP_APP_KEY=발급받은_TMAP_API_키
+KAKAO_REST_API_KEY=발급받은_Kakao_REST_API_키
+```
+
+> API 키가 없어도 컨테이너는 실행됩니다. 단, 날씨·교통·지오코딩 단계에서 오류가 발생해 `generateDailyPlan`이 실패합니다.
+
+---
+
+### 3단계 — Docker 이미지 빌드 및 실행
+
+```bash
+docker compose up -d
+```
+
+처음 실행 시 이미지를 빌드하므로 **3~5분** 정도 걸립니다. 진행 상황을 보려면:
+
+```bash
+docker compose logs -f
+```
+
+빌드가 완료되고 에뮬레이터가 준비되면 아래와 같은 로그가 출력됩니다:
+```
+✔  All emulators ready! It is now safe to connect your app.
+│  Emulator Host:Port                          │
+│  Functions  nagaja-backend:5001              │
+│  Firestore  nagaja-backend:8080              │
+│  Auth       nagaja-backend:9099              │
+│  Emulator UI nagaja-backend:4000             │
+```
+
+---
+
+### 4단계 — 동작 확인
+
+브라우저에서 아래 URL에 접속합니다:
+
+| 서비스 | URL | 설명 |
+|--------|-----|------|
+| Firebase Emulator UI | http://localhost:4000 | 전체 에뮬레이터 대시보드 |
+| Cloud Functions | http://localhost:5001 | 함수 엔드포인트 |
+| Firestore | http://localhost:8080 | DB 에뮬레이터 |
+| Auth | http://localhost:9099 | 인증 에뮬레이터 |
+
+**Emulator UI(`http://localhost:4000`)에서 확인할 수 있는 것:**
+- Firestore 탭 → 저장된 문서 조회/편집
+- Authentication 탭 → 테스트 계정 추가
+- Functions 탭 → 함수 호출 로그
+
+---
+
+### 5단계 — Cloud Functions 직접 테스트
+
+Functions 베이스 URL:
+```
+http://localhost:5001/demo-nagaja/asia-northeast3
+```
+
+**`generateDailyPlan` 호출 예시 (curl):**
+```bash
+curl -X POST \
+  "http://localhost:5001/demo-nagaja/asia-northeast3/generateDailyPlan" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "test-user-001",
+    "planDate": "2026-01-01"
+  }'
+```
+
+**Windows PowerShell:**
+```powershell
+Invoke-RestMethod `
+  -Method POST `
+  -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/generateDailyPlan" `
+  -ContentType "application/json" `
+  -Body '{"userId":"test-user-001","planDate":"2026-01-01"}'
+```
+
+응답 예시:
+```json
+{
+  "success": true,
+  "results": [...]
+}
+```
+
+---
+
+### 6단계 — Firestore에서 결과 확인
+
+1. http://localhost:4000 접속
+2. **Firestore** 탭 클릭
+3. `users` 컬렉션 → `test-user-001` → `dailyPlans` 서브컬렉션에서 계산된 플랜 확인
+
+---
+
+### 컨테이너 관리 명령어
+
+```bash
+# 백그라운드 실행
+docker compose up -d
+
+# 실시간 로그 보기
+docker compose logs -f
+
+# 컨테이너 상태 확인
+docker compose ps
+
+# 중지 (데이터 유지)
+docker compose stop
+
+# 완전 종료 및 컨테이너 삭제
 docker compose down
+
+# 이미지까지 삭제 후 처음부터 다시 빌드
+docker compose down --rmi local
+docker compose up -d --build
+```
+
+---
+
+### 문제 해결
+
+**포트 충돌 오류** (`port is already allocated`)
+```bash
+# 사용 중인 포트 확인 (Windows)
+netstat -ano | findstr :4000
+# 해당 PID 종료 후 재시도
+```
+
+**에뮬레이터가 시작되지 않음**
+```bash
+# 로그에서 오류 원인 확인
+docker compose logs backend
+```
+
+**API 키 오류로 Functions 실패**  
+날씨·교통 API 없이 기본 동작만 테스트할 경우 `.env`에 빈 값을 넣어도 컨테이너는 실행됩니다. `generateDailyPlan`은 실패하지만 Firestore/Auth 에뮬레이터 자체는 정상 동작합니다.
+
+**이미지 재빌드가 필요한 경우** (소스 코드 수정 후)
+```bash
+docker compose up -d --build
 ```
 
 ---
