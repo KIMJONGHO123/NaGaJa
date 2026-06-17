@@ -21,6 +21,13 @@ class AlarmService {
 
   bool get isAlarmFired => _fired;
 
+  // 알람 발사 상태를 외부(main.dart)에 알려 AlarmScreen으로 navigate하게 함
+  final alarmFiredNotifier = ValueNotifier<bool>(false);
+
+  // 앱이 포그라운드인지 여부 — main.dart의 AppLifecycleState에서 갱신
+  bool _appInForeground = true;
+  void setAppInForeground(bool value) => _appInForeground = value;
+
   // ── 초기화 ──────────────────────────────────────────────────
 
   Future<void> initialize() async {
@@ -49,10 +56,19 @@ class AlarmService {
         enableVibration: true,
         playSound: true,
       );
-      await _plugin
+      final androidPlugin = _plugin
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(channel);
+              AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.createNotificationChannel(channel);
+      // Android 14+에서 전체화면 인텐트 권한 요청
+      await androidPlugin?.requestFullScreenIntentPermission();
+    }
+
+    // 앱이 알림 탭으로 실행된 경우 알람 발사 상태 복원
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true) {
+      _fired = true;
+      alarmFiredNotifier.value = true;
     }
   }
 
@@ -76,11 +92,14 @@ class AlarmService {
           '기상 알람',
           importance: Importance.max,
           priority: Priority.max,
+          fullScreenIntent: true,
           actions: [
             AndroidNotificationAction(
               'dismiss',
               '알람 해제',
               cancelNotification: true,
+              showsUserInterface: true,
+              titleColor: Color(0xFFD32F2F),
             ),
           ],
         ),
@@ -116,14 +135,19 @@ class AlarmService {
 
   void _fireAlarm() {
     _fired = true;
-    debugPrint('[AlarmService] alarm fired!');
+    alarmFiredNotifier.value = true;
+    debugPrint('[AlarmService] alarm fired! appInForeground=$_appInForeground');
     if (Platform.isAndroid) {
       // RingtoneManager로 기기 기본 알람음 재생 (content:// URI는 MethodChannel로 처리)
       _channel.invokeMethod('playAlarmSound').catchError((e) {
         debugPrint('[AlarmService] playAlarmSound error: $e');
       });
     }
-    _showImmediateNotification();
+    // 앱이 포그라운드면 AlarmScreen으로 직접 전환하므로 알림 배너 불필요.
+    // 백그라운드·화면 OFF일 때만 알림을 띄워 fullScreenIntent로 화면을 깨운다.
+    if (!_appInForeground) {
+      _showImmediateNotification();
+    }
   }
 
   // zonedSchedule은 앱이 완전히 종료됐을 때의 백업.
@@ -140,6 +164,7 @@ class AlarmService {
           '기상 알람',
           importance: Importance.max,
           priority: Priority.max,
+          fullScreenIntent: true,
           playSound: false,
           audioAttributesUsage: AudioAttributesUsage.alarm,
           actions: [
@@ -147,6 +172,8 @@ class AlarmService {
               'dismiss',
               '알람 해제',
               cancelNotification: true,
+              showsUserInterface: true,
+              titleColor: Color(0xFFD32F2F),
             ),
           ],
         ),
@@ -163,6 +190,7 @@ class AlarmService {
   Future<void> dismissAlarm() async {
     _fired = false;
     _scheduledTime = null;
+    alarmFiredNotifier.value = false;
     if (Platform.isAndroid) {
       await _channel.invokeMethod('stopAlarmSound').catchError((e) {
         debugPrint('[AlarmService] stopAlarmSound error: $e');
@@ -175,12 +203,22 @@ class AlarmService {
 
 // 알림 탭/액션 콜백 — 앱이 살아있을 때 (포그라운드/백그라운드 모두)
 void _onNotificationTap(NotificationResponse response) {
-  AlarmService.instance.dismissAlarm();
+  if (response.actionId == 'dismiss') {
+    AlarmService.instance.dismissAlarm();
+  } else if (!AlarmService.instance._fired) {
+    // OS zonedSchedule 알림이 먼저 떴지만 Dart 타이머가 아직 체크 전인 경우
+    AlarmService.instance._fireAlarm();
+  }
+  // _fired == true면 _fireAlarm()이 이미 Push #1을 처리했음.
+  // 여기서 re-trigger하면 AlarmScreen이 중복 push됨 → 아무것도 하지 않는다.
 }
 
 // 알림 탭/액션 콜백 — 앱이 완전히 종료된 상태에서 알림을 탭했을 때
 // top-level 함수여야 하며 @pragma 필수
 @pragma('vm:entry-point')
 void _onBackgroundNotificationTap(NotificationResponse response) {
-  AlarmService.instance.dismissAlarm();
+  if (response.actionId == 'dismiss') {
+    AlarmService.instance.dismissAlarm();
+  }
+  // 본문 탭: initialize()의 getNotificationAppLaunchDetails()가 처리
 }

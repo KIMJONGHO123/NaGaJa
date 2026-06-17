@@ -37,16 +37,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return DailyPlanService.instance.planForSchedule(id);
   }
 
+  /// sentinel(1970) 과거값이 아닌 유효한 알람/출발 시각인지 확인
+  bool _isValidTime(DateTime dt) => dt.year >= 2000;
+
   /// DailyPlan이 있고 오늘 날짜 플랜이면 예측 이동시간, 아니면 기본값
   int get _travelMinutes {
     if (_nextClassTime == null) return SettingsService.instance.defaultTravelMinutes;
     final plan = _activePlan;
     if (plan != null) {
       final ft = plan.finalDepartureTime;
-      final sameDay = ft.year == _nextClassTime!.year &&
-          ft.month == _nextClassTime!.month &&
-          ft.day == _nextClassTime!.day;
-      if (sameDay) return plan.predictedTravelMinutes;
+      if (_isValidTime(ft)) {
+        final sameDay = ft.year == _nextClassTime!.year &&
+            ft.month == _nextClassTime!.month &&
+            ft.day == _nextClassTime!.day;
+        if (sameDay) return plan.predictedTravelMinutes;
+      }
     }
     return SettingsService.instance.defaultTravelMinutes;
   }
@@ -103,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _scheduleAlarmIfNeeded() {
     final plan = _activePlan;
     if (plan == null) return;
+    if (!_isValidTime(plan.finalAlarmTime)) return; // sentinel이면 예약 안 함
     AlarmService.instance.scheduleAlarm(plan.finalAlarmTime);
   }
 
@@ -151,10 +157,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final plan = _activePlan;
     if (plan != null) {
       final ft = plan.finalDepartureTime;
-      final sameDay = ft.year == _nextClassTime!.year &&
-          ft.month == _nextClassTime!.month &&
-          ft.day == _nextClassTime!.day;
-      if (sameDay) return ft;
+      if (_isValidTime(ft)) {
+        final sameDay = ft.year == _nextClassTime!.year &&
+            ft.month == _nextClassTime!.month &&
+            ft.day == _nextClassTime!.day;
+        if (sameDay) return ft;
+      }
     }
     return _nextClassTime!.subtract(Duration(minutes: _travelMinutes + 5));
   }
@@ -186,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            if (AlarmService.instance.isAlarmFired) _alarmDismissBanner(),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -233,45 +240,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _alarmDismissBanner() {
-    return Container(
-      color: Colors.red,
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        children: [
-          const Icon(Icons.alarm_on, color: Colors.white, size: 24),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              '기상 알람!',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              AlarmService.instance.dismissAlarm();
-              setState(() {});
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            ),
-            child: const Text(
-              '알람 해제',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildClock() {
     final t = _now;
     final timeStr =
@@ -298,9 +266,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildInfoCard() {
     // 오늘 수업이 없으면 출발 시각 표시 안 함
-    final departStr = (_nextClassTime != null && _shouldDepartAt != null)
-        ? _fmt(_shouldDepartAt!)
-        : '--:--';
+    // 플랜이 있는데 finalDepartureTime이 sentinel(1970)이면 '계산 전' 표시
+    final String departStr;
+    if (_nextClassTime == null) {
+      departStr = '--:--';
+    } else if (_activePlan != null && !_isValidTime(_activePlan!.finalDepartureTime)) {
+      departStr = '계산 전';
+    } else {
+      departStr = _shouldDepartAt != null ? _fmt(_shouldDepartAt!) : '--:--';
+    }
     final hasPlan = _activePlan != null && !_activePlan!.fallbackUsed;
     return Container(
       padding: const EdgeInsets.all(20),
@@ -376,47 +350,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _alarmCard(DailyPlanModel plan) {
-    final fired = AlarmService.instance.isAlarmFired;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: fired ? const Color(0xFFFFEBEE) : const Color(0xFFE8F0FE),
+        color: const Color(0xFFE8F0FE),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          Icon(
-            fired ? Icons.alarm_on : Icons.notifications_active,
-            size: 20,
-            color: fired ? Colors.red : const Color(0xFFFBBC04),
-          ),
+          const Icon(Icons.notifications_active,
+              size: 20, color: Color(0xFFFBBC04)),
           const SizedBox(width: 10),
           Text('기상 알람',
               style: TextStyle(fontSize: 14, color: Colors.grey[700])),
           const Spacer(),
-          if (fired)
-            TextButton(
-              onPressed: () {
-                AlarmService.instance.dismissAlarm();
-                setState(() {});
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: const Size(48, 32),
-              ),
-              child: const Text('해제',
-                  style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-            )
-          else
+          if (_isValidTime(plan.finalAlarmTime))
             Text(
               _fmt(plan.finalAlarmTime),
               style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1A73E8)),
-            ),
+            )
+          else
+            Text('기상 알람 없음',
+                style: TextStyle(fontSize: 14, color: Colors.grey[500])),
         ],
       ),
     );

@@ -42,8 +42,9 @@ class DailyPlanModel {
   });
 
   factory DailyPlanModel.fromMap(Map<String, dynamic> data) {
+    // Timestamp가 없으면 sentinel 과거값(1970) 반환 → 사용처에서 year >= 2000 체크로 걸러냄
     DateTime parseTs(dynamic v) =>
-        v is Timestamp ? v.toDate() : DateTime.now();
+        v is Timestamp ? v.toDate() : DateTime.fromMillisecondsSinceEpoch(0);
 
     return DailyPlanModel(
       dailyPlanId: data['dailyPlanId'] as String? ?? '',
