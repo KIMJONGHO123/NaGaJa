@@ -321,7 +321,9 @@ Future<void> main() async {
 
 ---
 
-### 4단계 — 앱을 스마트폰에 설치
+### 4단계 — 앱 실행 (스마트폰 또는 Android 에뮬레이터)
+
+#### 방법 A: 실제 스마트폰 (권장)
 
 USB로 스마트폰을 PC에 연결합니다.
 
@@ -329,10 +331,51 @@ USB로 스마트폰을 PC에 연결합니다.
 cd NaGaJa
 flutter devices        # 스마트폰이 목록에 표시되면 준비 완료
 flutter pub get
-flutter run            # 디버그 빌드로 설치 및 실행
+flutter run
 ```
 
-빌드 완료 후 스마트폰 화면에 앱이 실행됩니다.
+#### 방법 B: Android Studio 에뮬레이터
+
+> 스마트폰 없이 PC에서 모두 테스트할 수 있습니다.
+> 단, BLE와 Wi-Fi SSID 감지는 에뮬레이터에서 동작하지 않습니다.
+
+**에뮬레이터 생성 (최초 1회):**
+
+1. Android Studio 실행 → 우측 상단 **Device Manager** 클릭
+2. **Create Virtual Device** → Pixel 7 선택 → API 34 (Android 14) 이미지 다운로드 → Finish
+3. 생성된 AVD의 ▶ 버튼으로 에뮬레이터 실행
+
+**앱 실행:**
+
+```bash
+cd NaGaJa
+flutter devices        # emulator-XXXX 항목이 보이면 준비 완료
+flutter pub get
+flutter run            # 자동으로 실행 중인 에뮬레이터에 설치
+```
+
+**Docker 에뮬레이터 연결 시 주의사항:**
+
+Android 에뮬레이터에서 PC의 localhost에 접근할 때는 `10.0.2.2`를 사용합니다.
+3단계의 `main.dart` 코드에서 `host`를 아래와 같이 변경합니다:
+
+```dart
+// 방법 A (실제 스마트폰): PC 로컬 IP 사용
+const host = '192.168.x.x';
+
+// 방법 B (Android 에뮬레이터): 에뮬레이터 전용 loopback 주소
+const host = '10.0.2.2';
+```
+
+**기능 제한 (에뮬레이터):**
+
+| 기능 | 에뮬레이터 | 실제 기기 |
+|------|-----------|---------|
+| Firebase Auth / Firestore | 동작 | 동작 |
+| Cloud Functions 호출 | 동작 | 동작 |
+| 알람 (로컬 알림) | 동작 | 동작 |
+| Wi-Fi SSID 자동 출결 | 미동작 | 동작 |
+| BLE (라즈베리파이 연결) | 미동작 | 동작 |
 
 ---
 
