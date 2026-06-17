@@ -222,7 +222,222 @@ docker compose up -d --build
 
 ---
 
-## 환경 변수
+## 전체 시스템 테스트 (Docker + 모바일 앱 + 라즈베리파이)
+
+### 구성도
+
+```
+[PC / Mac]                        [Android 스마트폰]        [라즈베리파이 4]
+Docker
+ ├─ Firebase Auth    :9099  ←──── Flutter 앱              BLE 연동 예정
+ ├─ Cloud Firestore  :8080  ←──── (동일 Wi-Fi)            (현재 미구현)
+ └─ Cloud Functions  :5001  ←────
+```
+
+세 장치가 **같은 Wi-Fi 네트워크**에 있어야 합니다.
+
+---
+
+### 사전 준비
+
+| 장치 | 필요 항목 |
+|------|-----------|
+| PC / Mac | Docker Desktop, Flutter SDK 3.x, Android Studio |
+| Android 스마트폰 | 개발자 모드 ON, USB 디버깅 활성화, PC와 동일 Wi-Fi |
+| 라즈베리파이 | Python 3, `firebase-admin` 패키지 (선택, 현재 BLE 미구현) |
+
+---
+
+### 1단계 — Docker 백엔드 실행
+
+```bash
+# 프로젝트 루트에서
+cp .env.example .env    # .env에 실제 API 키 입력
+docker compose up -d
+```
+
+에뮬레이터 준비 완료 메시지 확인:
+```
+✔  All emulators ready! It is now safe to connect your app.
+```
+
+---
+
+### 2단계 — PC의 로컬 IP 확인
+
+스마트폰이 PC의 에뮬레이터에 접속할 때 필요합니다.
+
+**Windows:**
+```powershell
+ipconfig
+# → IPv4 주소: 192.168.x.x  ← 이 값을 사용
+```
+
+**macOS / Linux:**
+```bash
+ifconfig | grep "inet " | grep -v 127.0.0.1
+```
+
+---
+
+### 3단계 — Flutter 앱을 Docker 에뮬레이터에 연결
+
+Flutter 앱은 기본적으로 프로덕션 Firebase(`nagaja-a6a8b`)에 연결됩니다.
+Docker 에뮬레이터로 테스트하려면 `NaGaJa/lib/main.dart`의 `main()` 상단에 아래 코드를 추가합니다.
+
+```dart
+// main.dart 상단 import 추가
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_functions/firebase_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+```
+
+`Firebase.initializeApp()` 바로 뒤에 삽입:
+
+```dart
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // ── 에뮬레이터 연결 (테스트 전용 — 완료 후 반드시 제거) ──
+  if (kDebugMode) {
+    const host = '192.168.x.x'; // 2단계에서 확인한 PC IP로 변경
+    FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+    await FirebaseAuth.instance.useAuthEmulator(host, 9099);
+    FirebaseFunctions.instanceFor(region: 'asia-northeast3')
+        .useFunctionsEmulator(host, 5001);
+  }
+  // ─────────────────────────────────────────────────────────
+
+  await AlarmService.instance.initialize();
+  runApp(const NagajaApp());
+}
+```
+
+> **주의**: 테스트가 끝나면 에뮬레이터 연결 블록을 제거하거나 주석 처리 후 커밋하세요. 그대로 두면 프로덕션에서 에뮬레이터로 접속을 시도합니다.
+
+**더 간단한 대안**: 에뮬레이터 연결 코드 없이 `flutter run`하면 프로덕션 Firebase로 연결됩니다. 실제 Google 계정 로그인이 가능하고 날씨·교통 API도 동작하므로 기능 확인 목적이라면 이 방법이 더 빠릅니다.
+
+---
+
+### 4단계 — 앱을 스마트폰에 설치
+
+USB로 스마트폰을 PC에 연결합니다.
+
+```bash
+cd NaGaJa
+flutter devices        # 스마트폰이 목록에 표시되면 준비 완료
+flutter pub get
+flutter run            # 디버그 빌드로 설치 및 실행
+```
+
+빌드 완료 후 스마트폰 화면에 앱이 실행됩니다.
+
+---
+
+### 5단계 — 테스트 계정 준비 (에뮬레이터 모드)
+
+에뮬레이터 모드에서는 Google Sign-In이 동작하지 않습니다. 이메일 계정을 미리 생성합니다.
+
+1. `http://localhost:4000` → **Authentication** 탭 → **Add user**
+2. Email: `test@test.com`, Password: `test1234` 입력 후 저장
+3. 생성된 UID를 메모해 둡니다 (Firestore 확인 시 사용)
+
+> 에뮬레이터 모드에서 앱 로그인 화면의 Google 버튼 대신 이메일 로그인이 필요한 경우 별도 구현이 필요합니다. 기능 테스트는 프로덕션 Firebase + 실제 Google 계정 로그인을 권장합니다.
+
+---
+
+### 6단계 — 전체 기능 플로우 테스트
+
+#### 온보딩 (최초 1회)
+1. 앱 실행 → Google 로그인
+2. 이름, 준비 시간(분) 입력
+3. 출발지 주소 검색 → 선택 (Kakao 지오코딩으로 좌표 저장)
+4. 수업 시간표 등록: 요일, 수업 시작 시각, 목적지, 이동 수단
+5. 홈 화면 진입 확인
+
+#### 홈 화면 — dailyPlan 생성 및 확인
+1. 홈 화면 우측 상단 **새로고침** 버튼 탭
+2. `generateDailyPlan` Cloud Function 호출 → 날씨·교통·혼잡도 계산
+3. 성공 시 카드 표시 확인:
+   - **기상 알람** 카드 (finalAlarmTime)
+   - **날씨 보정** 카드 (+N분, 맑음/비/눈)
+   - **혼잡도 보정** 카드 (+N분)
+4. `http://localhost:4000` Firestore 탭 → `users/{uid}/dailyPlans` 문서 생성 확인
+
+#### 알람 전체화면 테스트
+Firestore 에뮬레이터에서 `finalAlarmTime`을 **현재 시각 + 1~2분**으로 직접 수정합니다.
+
+1. `http://localhost:4000` → Firestore → `users/{uid}/dailyPlans/{문서}` 클릭
+2. `finalAlarmTime` 필드 → 현재 시각 + 1분으로 편집 (Timestamp 형식)
+3. 앱이 30초 주기로 체크 → 지정 시각에 전체화면 알람 표시 확인
+4. **알람 해제** 버튼 또는 배너 알람 "알람 해제" 탭으로 해제 확인
+
+#### Wi-Fi 자동 출결 테스트
+1. **설정** 탭 → Wi-Fi 출결 → 집 SSID / 학교 SSID 등록
+2. 집 Wi-Fi 연결 상태에서 시작
+3. Wi-Fi를 끄거나 다른 네트워크로 전환 → 홈 화면 "출발" 상태 자동 전환 확인
+4. 학교 SSID 네트워크에 연결 → "도착" 자동 기록 확인
+5. Firestore `dailyPlans` 문서 → `departedAt`, `arrivedAt` 필드 저장 확인
+
+#### 캘린더 출결 확인
+1. 하단 탭 → **캘린더**
+2. 오늘 날짜 출결 상태 (정시 / 지각 / 결석) 표시 확인
+3. **새로고침** 버튼 → Firestore 최신 데이터 반영 확인
+
+---
+
+### 7단계 — 라즈베리파이 알람시계
+
+> **현재 상태**: BLE 연동 미구현. 현재 알람은 스마트폰 로컬 알림으로만 동작합니다.
+
+**구현 예정 아키텍처:**
+
+| 단계 | 동작 |
+|------|------|
+| 앱 → Pi | `finalAlarmTime`을 BLE로 라즈베리파이에 전송 |
+| Pi | 지정 시각에 NeoPixel LED 점등 + OLED 시각 표시 + 부저 알람 |
+| Pi → 앱 | 알람 해제 시그널 전송 |
+
+**현재 테스트 가능한 범위 (Firestore 직접 읽기):**
+
+라즈베리파이에서 Firebase Admin SDK를 사용해 `finalAlarmTime`을 읽고 GPIO로 제어할 수 있습니다.
+
+```bash
+# 라즈베리파이에서 Firebase Admin SDK 설치
+pip3 install firebase-admin
+```
+
+```python
+# 참고용 예시 — BLE 구현 전 Firestore 직접 읽기
+import firebase_admin
+from firebase_admin import credentials, firestore
+import time
+from datetime import datetime, timezone
+
+cred = credentials.Certificate('serviceAccountKey.json')  # Firebase Console에서 발급
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+USER_ID = 'your-user-uid'
+TODAY = datetime.now().strftime('%Y-%m-%d')
+
+plans = db.collection('users').document(USER_ID) \
+          .collection('dailyPlans') \
+          .where('planDate', '==', TODAY) \
+          .stream()
+
+for plan in plans:
+    data = plan.to_dict()
+    alarm_time = data.get('finalAlarmTime')  # Firestore Timestamp
+    print(f"알람 시각: {alarm_time}")
+    # TODO: GPIO로 LED/부저 제어
+```
+
+> `serviceAccountKey.json`은 Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성에서 발급합니다. **절대 커밋하지 마세요.**
+
+---
 
 `.env.example`을 복사해 `.env`를 만들고 아래 키를 입력합니다.
 
