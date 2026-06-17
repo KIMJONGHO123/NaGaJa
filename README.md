@@ -390,49 +390,72 @@ Firestore 에뮬레이터에서 `finalAlarmTime`을 **현재 시각 + 1~2분**�
 
 ### 7단계 — 라즈베리파이 알람시계
 
-> **현재 상태**: BLE 연동 미구현. 현재 알람은 스마트폰 로컬 알림으로만 동작합니다.
+**동작 구조:**
 
-**구현 예정 아키텍처:**
+```
+[모바일 앱]  ──BLE──▶  [라즈베리파이]  ──Wi-Fi──▶  [Firestore]
+               사용자 정보              dailyPlans 구독
+               (userId, 초기 설정)      finalAlarmTime 읽기
+                                                │
+                                          알람 시각 도달
+                                                │
+                                       NeoPixel LED 점등
+                                       OLED 시각 표시
+                                       부저 알람
+```
 
-| 단계 | 동작 |
-|------|------|
-| 앱 → Pi | `finalAlarmTime`을 BLE로 라즈베리파이에 전송 |
-| Pi | 지정 시각에 NeoPixel LED 점등 + OLED 시각 표시 + 부저 알람 |
-| Pi → 앱 | 알람 해제 시그널 전송 |
+- **BLE** (앱 → Pi): 라즈베리파이가 어떤 사용자의 플랜을 볼지 결정하는 `userId` 등 사용자 정보를 전달합니다. 초기 페어링 시 1회 수행합니다.
+- **Wi-Fi → Firestore** (Pi 상시): 사용자 정보를 받은 뒤 라즈베리파이가 직접 Firestore에 Wi-Fi로 접속해 `dailyPlans`를 구독하고, `finalAlarmTime`에 맞춰 물리 알람을 동작시킵니다.
 
-**현재 테스트 가능한 범위 (Firestore 직접 읽기):**
+> **현재 상태**: BLE 사용자 정보 전달 미구현. Wi-Fi → Firestore 직접 연결 방식으로 테스트 가능합니다.
 
-라즈베리파이에서 Firebase Admin SDK를 사용해 `finalAlarmTime`을 읽고 GPIO로 제어할 수 있습니다.
+---
+
+**라즈베리파이 테스트 (Wi-Fi → Firestore 직접 연결):**
+
+Firebase Admin SDK로 Firestore에서 `finalAlarmTime`을 읽어 GPIO를 제어합니다.
 
 ```bash
-# 라즈베리파이에서 Firebase Admin SDK 설치
+# 라즈베리파이에서 실행
 pip3 install firebase-admin
 ```
 
 ```python
-# 참고용 예시 — BLE 구현 전 Firestore 직접 읽기
 import firebase_admin
 from firebase_admin import credentials, firestore
+from datetime import datetime
 import time
-from datetime import datetime, timezone
 
-cred = credentials.Certificate('serviceAccountKey.json')  # Firebase Console에서 발급
+# Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성
+cred = credentials.Certificate('serviceAccountKey.json')
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-USER_ID = 'your-user-uid'
+USER_ID = 'BLE로 받아온 userId'  # BLE 미구현 시 직접 입력
 TODAY = datetime.now().strftime('%Y-%m-%d')
 
-plans = db.collection('users').document(USER_ID) \
-          .collection('dailyPlans') \
-          .where('planDate', '==', TODAY) \
-          .stream()
+# 오늘 dailyPlans 구독 — Firestore가 변경되면 자동으로 콜백 호출
+def on_plans_update(col_snapshot, changes, read_time):
+    for doc in col_snapshot:
+        data = doc.to_dict()
+        alarm_ts = data.get('finalAlarmTime')
+        if alarm_ts:
+            alarm_dt = alarm_ts.astimezone()
+            print(f"[Pi] 알람 예약: {alarm_dt}")
+            # alarm_dt까지 대기 후 GPIO 제어
+            # import RPi.GPIO as GPIO
+            # GPIO.output(BUZZER_PIN, GPIO.HIGH)
+            # neopixel 점등 등
 
-for plan in plans:
-    data = plan.to_dict()
-    alarm_time = data.get('finalAlarmTime')  # Firestore Timestamp
-    print(f"알람 시각: {alarm_time}")
-    # TODO: GPIO로 LED/부저 제어
+col_ref = db.collection('users').document(USER_ID).collection('dailyPlans')
+watch = col_ref.on_snapshot(on_plans_update)
+
+print("Firestore 구독 중... Ctrl+C로 종료")
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    watch.unsubscribe()
 ```
 
 > `serviceAccountKey.json`은 Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성에서 발급합니다. **절대 커밋하지 마세요.**
