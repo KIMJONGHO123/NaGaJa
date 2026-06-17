@@ -11,7 +11,7 @@
   ├─ 홈 화면 (출발 시각·알람)  ──▶  Firebase Auth  :9099        (Firestore 실시간 구독)
   ├─ 알람 (전체화면·배너)      ──▶  Cloud Firestore :8080  ──▶  WebSocket :8765
   ├─ 캘린더 (출결 기록)        ──▶  Cloud Functions :5001             │
-  ├─ 설정 (Wi-Fi 출결)                   │                    timer_ui.html
+  ├─ 설정 (Wi-Fi 출결·BLE)               │                    timer_ui.html
   └─ Wi-Fi 자동 출결 감지          generateDailyPlan         (Chromium 키오스크)
                                          │                         │
                               외부 API 호출                  GPIO 알람 발동
@@ -20,6 +20,7 @@
                                └─ Kakao 지오코딩
 
 [연결 구조]
+ Flutter 앱 ──BLE(userId, 최초 1회)──▶ 라즈베리파이 (사용자 등록)
  라즈베리파이 ──Wi-Fi──▶ Firestore (dailyPlans 실시간 구독 → 알람 시각 감시)
  nagaja_bridge.py ──WebSocket(8765)──▶ timer_ui.html (7인치 터치스크린 표시)
 ```
@@ -63,6 +64,7 @@ users/{userId}
 | 외부 API | 기상청 단기예보, TMAP 대중교통, Kakao 지오코딩 |
 | IoT | Raspberry Pi 5, 7인치 공식 터치스크린, 부저 (GPIO 18) |
 | IoT 브리지 | firebase-admin (Python), websockets, RPi.GPIO |
+| BLE | flutter_blue_plus (Flutter) / bless (Python GATT 서버, Pi 측 userId 수신) |
 | 컨테이너 | Docker + Firebase Emulator Suite |
 | Firebase 프로젝트 | nagaja-a6a8b (asia-northeast3, 서울) |
 
@@ -214,15 +216,15 @@ docker compose logs backend
 ```
 [PC / Mac]                        [Android 스마트폰]        [라즈베리파이 5]
 Docker
- ├─ Firebase Auth    :9099  ←──── Flutter 앱          ─────── Wi-Fi
- ├─ Cloud Firestore  :8080  ←──── (동일 Wi-Fi)                 nagaja_bridge.py
- └─ Cloud Functions  :5001  ←────                              (Firestore 구독)
-                                                                     │
-                                                             WebSocket :8765
-                                                                     │
-                                                            timer_ui.html (7인치)
-                                                                     │
-                                                              GPIO 부저/버튼
+ ├─ Firebase Auth    :9099  ←──── Flutter 앱  ─BLE(최초 1회)→ userId 수신
+ ├─ Cloud Firestore  :8080  ←──── (동일 Wi-Fi)             nagaja_bridge.py
+ └─ Cloud Functions  :5001  ←────                          (Firestore 구독)
+                                                                 │
+                                                           WebSocket :8765
+                                                                 │
+                                                          timer_ui.html (7인치)
+                                                                 │
+                                                            GPIO 부저/버튼
 ```
 
 ### 사전 준비
@@ -230,8 +232,8 @@ Docker
 | 장치 | 필요 항목 |
 |------|-----------|
 | PC / Mac | Docker Desktop, Flutter SDK 3.x, Android Studio |
-| Android 스마트폰 | 개발자 모드 ON, USB 디버깅 활성화, PC와 동일 Wi-Fi |
-| 라즈베리파이 5 | Python 3, firebase-admin, websockets, RPi.GPIO, 7인치 공식 터치스크린 |
+| Android 스마트폰 | 개발자 모드 ON, USB 디버깅 활성화, PC와 동일 Wi-Fi, Bluetooth ON |
+| 라즈베리파이 5 | Python 3, bluetooth/bluez, bless, firebase-admin, websockets, RPi.GPIO, 7인치 공식 터치스크린 |
 
 ### 1단계 — Docker 백엔드 실행
 
@@ -329,12 +331,13 @@ flutter run
 **동작 구조:**
 
 ```
-Firestore (dailyPlans) ──Wi-Fi──▶ nagaja_bridge.py ──WebSocket(8765)──▶ timer_ui.html
-                                         │                               (7인치 Chromium)
-                                   알람 시각 도달
-                                         │
-                                  GPIO 부저 알람 (핀 18)
-                                  버튼으로 해제 (핀 17)
+[최초 1회] Flutter 앱 ──BLE──▶ 라즈베리파이 (userId 전달 → nagaja_bridge.py 기동)
+[이후 상시] Firestore (dailyPlans) ──Wi-Fi──▶ nagaja_bridge.py ──WebSocket(8765)──▶ timer_ui.html
+                                                    │                               (7인치 Chromium)
+                                              알람 시각 도달
+                                                    │
+                                             GPIO 부저 알람 (핀 18)
+                                             버튼으로 해제 (핀 17)
 ```
 
 **GPIO 배선:**
@@ -351,19 +354,19 @@ Firestore (dailyPlans) ──Wi-Fi──▶ nagaja_bridge.py ──WebSocket(876
 git clone https://github.com/jeje9893/NaGaJa-raspi.git ~/nagaja
 cd ~/nagaja
 
-# 2. Python 가상환경 생성 및 패키지 설치
+# 2. Bluetooth 패키지 설치
+sudo apt-get update
+sudo apt-get install -y bluetooth bluez python3-pip
+
+# 3. Python 가상환경 생성 및 패키지 설치
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # firebase-admin, websockets, bless
 pip install RPi.GPIO
 
-# 3. Firebase 서비스 계정 키 배치 (절대 커밋 금지)
+# 4. Firebase 서비스 계정 키 배치 (절대 커밋 금지)
 # Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성
 # → ~/nagaja/serviceAccountKey.json 으로 저장
-
-# 4. nagaja_bridge.py 에서 userId 설정
-nano nagaja_bridge.py
-# FIRESTORE_USER_ID = "실제_사용자_uid"  ← Firebase Auth UID 입력
 ```
 
 **Pi 실행 (수동):**
@@ -372,16 +375,20 @@ nano nagaja_bridge.py
 cd ~/nagaja
 source venv/bin/activate
 
-# 터미널 1 — Firestore 브리지 + GPIO
-python3 nagaja_bridge.py
-# 또는 UID를 인수로 전달
-python3 nagaja_bridge.py --uid <firebase-uid>
+# 터미널 1 — BLE GATT 서버 (앱에서 userId 수신 대기, 최초 1회)
+sudo python3 ble_receiver.py
+# 앱 설정 탭 → 기기 연결 → 연결 버튼 → userId 자동 전송
 
-# 터미널 2 — 7인치 터치스크린 UI (Chromium 키오스크)
+# userId 수신 후 터미널 2 — Firestore 브리지 + GPIO
+python3 nagaja_bridge.py
+
+# 터미널 3 — 7인치 터치스크린 UI (Chromium 키오스크)
 chromium-browser --kiosk --disable-infobars \
   --window-size=800,480 \
   http://localhost:8765
 ```
+
+**앱에서 연결**: 설정 탭 → 기기 연결 → **연결** 버튼 → `NaGaJa-Pi` 자동 스캔 및 userId 전송
 
 **systemd 자동 시작 (부팅 시 자동 실행):**
 
