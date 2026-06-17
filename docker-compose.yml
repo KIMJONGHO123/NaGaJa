@@ -1,0 +1,17 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"   # Firebase Emulator UI
+      - "5001:5001"   # Cloud Functions
+      - "8080:8080"   # Firestore
+      - "9099:9099"   # Auth
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

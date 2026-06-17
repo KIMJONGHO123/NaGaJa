@@ -1,0 +1,29 @@
+FROM node:20-alpine
+
+# Firebase CLI 설치
+RUN npm install -g firebase-tools
+
+WORKDIR /workspace
+
+# Firebase 설정 파일 복사
+COPY NaGaJa/firebase.json .
+COPY NaGaJa/.firebaserc .
+COPY NaGaJa/firestore.rules .
+
+# Cloud Functions 의존성 설치 및 빌드
+WORKDIR /workspace/functions
+COPY NaGaJa/functions/package*.json ./
+RUN npm ci
+COPY NaGaJa/functions/src ./src
+COPY NaGaJa/functions/tsconfig.json ./
+RUN npm run build
+
+WORKDIR /workspace
+
+# Emulator UI(4000), Functions(5001), Firestore(8080), Auth(9099)
+EXPOSE 4000 5001 8080 9099
+
+# demo 프로젝트로 실행 — Firebase 계정 인증 불필요
+CMD ["firebase", "emulators:start", \
+     "--only", "auth,functions,firestore", \
+     "--project", "demo-nagaja"]

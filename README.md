@@ -1,168 +1,192 @@
-# 나가자 (Nagaja) 세팅 가이드
+# 나가자 (NaGaJa)
 
-Flutter + Firebase 기반 스마트 알람 · 출결 관리 앱 초기 세팅 문서입니다.
+Flutter + Firebase 기반 스마트 알람 · 출결 관리 앱입니다.
+날씨·대중교통·혼잡도 데이터를 결합해 최적 출발 시각을 계산하고, Wi-Fi 자동 출결 로그 및 전체화면 알람을 제공합니다.
 
 ## 프로젝트 전체 구조 사진
 <img width="2752" height="1536" alt="스마트_동적_알람_시스템_나가자" src="https://github.com/user-attachments/assets/a49532c7-33bb-48b7-ba01-82b2c15f2c90" />
 
 ---
 
-## 프로젝트 구조
+## 기술 스택
 
-```text
-NaGaJa/
-├── lib/
-│   ├── main.dart
-│   ├── models/
-│   ├── views/
-│   ├── services/
-│   └── providers/
-├── functions/
-│   └── src/index.ts
-├── android/
-├── ios/
-├── .gitignore
-├── .gitattributes
-```
+| 구분 | 기술 |
+|------|------|
+| 모바일 앱 | Flutter 3.x (Dart), Android / iOS |
+| 백엔드 | Firebase Cloud Functions (TypeScript, Node 20) |
+| 데이터베이스 | Cloud Firestore |
+| 인증 | Firebase Auth (Google 소셜 로그인) |
+| 외부 API | 기상청 단기예보, TMAP 대중교통, Kakao 지오코딩 |
+| 인프라 | Firebase (asia-northeast3), Raspberry Pi (Wi-Fi 출결) |
+| 컨테이너 | Docker + Firebase Emulator Suite |
 
 ---
 
-## 필수 설치
+## 빠른 시작 (Docker)
 
-- Flutter SDK (3.x 이상)
-- Android Studio (Android SDK, cmdline-tools 포함)
-- Node.js (20 LTS 권장)
-- Firebase CLI
-- FlutterFire CLI
-
-설치 명령어:
+> Docker Desktop이 설치되어 있어야 합니다.
 
 ```bash
-npm install -g firebase-tools
-dart pub global activate flutterfire_cli
-```
-
-> Windows는 Flutter plugin 빌드를 위해 개발자 모드(Developer Mode) ON이 필요합니다.
-
-### Android Studio가 필요한 이유
-
-- Android 에뮬레이터(AVD) 실행
-- Android SDK / Build-Tools / Platform-Tools 설치
-- `flutter doctor --android-licenses` 및 Android 빌드 환경 구성
-
-설치 후 확인 명령:
-
-```bash
-flutter doctor
-```
-
-`[√] Android toolchain` 이 떠야 Android 개발/배포 준비가 완료됩니다.
-
----
-
-## 처음 클론 후 실행 순서
-
-### 1) 프로젝트 받기
-
-```bash
+# 1. 저장소 클론
 git clone <repository-url>
 cd NaGaJa
+
+# 2. 환경 변수 설정
+cp .env.example .env
+# .env 파일을 열어 실제 API 키 입력
+
+# 3. 백엔드(Firebase 에뮬레이터) 실행
+docker compose up -d
+
+# 4. 접속 확인
+# Firebase Emulator UI : http://localhost:4000
+# Cloud Functions      : http://localhost:5001
+# Firestore Emulator   : http://localhost:8080
+# Auth Emulator        : http://localhost:9099
 ```
 
-### 2) 패키지 설치
+종료:
+```bash
+docker compose down
+```
+
+---
+
+## 환경 변수
+
+`.env.example`을 복사해 `.env`를 만들고 아래 키를 입력합니다.
+
+| 변수명 | 발급처 | 설명 |
+|--------|--------|------|
+| `WEATHER_SERVICE_KEY` | 공공데이터포털 | 기상청 단기예보 API 인증키 |
+| `TMAP_APP_KEY` | SKT 개발자센터 | TMAP 대중교통 경로 API 키 |
+| `KAKAO_REST_API_KEY` | Kakao Developers | 주소 → 좌표 변환(지오코딩) API 키 |
+
+> `.env` 파일은 `.gitignore`에 의해 추적되지 않습니다. 실제 키를 커밋하지 마세요.
+
+---
+
+## API 엔드포인트
+
+Cloud Functions 엔드포인트 목록 및 상세 문서는 [`NaGaJa/functions/docs/`](NaGaJa/functions/docs/) 를 참고합니다.
+
+| 함수명 | 설명 |
+|--------|------|
+| `generateDailyPlan` | 일일 출발 계획 계산 (날씨+교통+혼잡도) |
+| `getTransitData` | TMAP 대중교통 경로 조회 |
+| `getWeatherData` | 기상청 단기예보 조회 |
+| `getCongestionData` | 버스 혼잡도 계산 |
+
+에뮬레이터 실행 시 Functions 베이스 URL:
+```
+http://localhost:5001/demo-nagaja/asia-northeast3/
+```
+
+---
+
+## 테스트 계정
+
+Firebase Auth 에뮬레이터 모드(`docker compose up -d`)로 실행 시 실제 Google 계정 없이 임의 계정을 생성할 수 있습니다.
+
+- Emulator UI(`http://localhost:4000`) → Authentication 탭 → Add user
+- 또는 앱에서 Google 로그인 진행 시 에뮬레이터가 자동으로 계정을 처리합니다.
+
+---
+
+## 모바일 앱 빌드
 
 ```bash
+cd NaGaJa
+
+# 의존성 설치
 flutter pub get
+
+# 기기/에뮬레이터에서 실행
+flutter run
+
+# Android APK 빌드
+flutter build apk --release
+
+# 코드 분석
+flutter analyze
 ```
 
-### 3) Firebase 연결
+> Flutter SDK 3.x 이상, Android Studio (Android SDK 포함)가 필요합니다.
+
+### Firebase 연결 (최초 1회)
 
 ```bash
 firebase login
 dart pub global run flutterfire_cli:flutterfire configure --platforms=android,ios
 ```
 
-생성/배치 파일:
-
-- `lib/firebase_options.dart`
-- `android/app/google-services.json`
-- `ios/Runner/GoogleService-Info.plist`
-
-> iOS plist 자동 생성이 누락되면 Firebase Console에서 직접 다운로드해 `ios/Runner/GoogleService-Info.plist`로 복사합니다.
-
-### 4) 앱 실행
-
-```bash
-flutter devices
-flutter emulators --launch Pixel_7   # 필요 시
-flutter run
-```
+생성 파일: `NaGaJa/lib/firebase_options.dart`, `NaGaJa/android/app/google-services.json`
 
 ---
 
-## Cloud Functions
+## 배포
+
+### Cloud Functions 배포
 
 ```bash
-cd functions
+cd NaGaJa/functions
 npm install
 npm run build
-```
-
-### 로컬 에뮬레이터 테스트 (처음 1회)
-
-처음 한 번은 프로젝트 루트(`NaGaJa`)에서 Emulator 초기화를 해야 합니다.
-
-```bash
-firebase init emulators
-```
-
-권장 선택:
-
-- `Use an existing project` -> `nagaja-a6a8b`
-- Emulator: `Authentication`, `Functions`, `Firestore`
-- 포트는 기본값 사용
-
-`firebase.json`에 아래 설정이 있어야 Functions Emulator가 정상 시작됩니다:
-
-```json
-"functions": {
-  "source": "functions"
-}
-```
-
-초기화 후 실행:
-
-```bash
-cd functions
-npm run serve
-```
-
-정상 동작 확인:
-
-- Emulator UI: `http://127.0.0.1:4000`
-- Functions Emulator: `127.0.0.1:5001`
-
-종료:
-
-- 실행 터미널에서 `Ctrl + C`
-
-### 배포
-
-```bash
-cd functions
 npm run deploy
+# 또는: firebase deploy --only functions
 ```
 
-> `functions/package.json`은 Node 20 기준입니다. 로컬 Node가 22면 경고가 뜰 수 있으나, 가능하면 Node 20 사용을 권장합니다.
+### Firestore 규칙 배포
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+> 배포 대상 Firebase 프로젝트: `nagaja-a6a8b` (Seoul, asia-northeast3)
 
 ---
 
-## iOS 관련
+## 프로젝트 구조
 
-- iOS 빌드/배포는 macOS + Xcode에서만 가능합니다.
+```text
+NaGaJa/              (루트)
+├── Dockerfile        # Firebase 에뮬레이터 Docker 이미지
+├── docker-compose.yml
+├── .env.example      # 환경 변수 템플릿
+├── Mobile/           # Flutter 앱 안내 → NaGaJa/ 참조
+├── Backend/          # Cloud Functions 안내 → NaGaJa/functions/ 참조
+└── NaGaJa/           # Flutter 프로젝트 루트
+    ├── lib/
+    │   ├── main.dart
+    │   ├── models/
+    │   ├── views/
+    │   └── services/
+    ├── functions/    # Cloud Functions (TypeScript)
+    │   ├── src/
+    │   └── docs/     # API 문서
+    ├── android/
+    └── ios/
+```
+
+---
+
+## 로컬 개발 (Docker 없이)
+
+### Cloud Functions 직접 실행
 
 ```bash
-cd ios
+cd NaGaJa/functions
+npm install
+npm run build
+npm run serve   # Firebase 에뮬레이터 시작
+```
+
+### iOS 관련
+
+iOS 빌드/배포는 macOS + Xcode에서만 가능합니다.
+
+```bash
+cd NaGaJa/ios
 pod install
 open Runner.xcworkspace
 ```
@@ -173,10 +197,9 @@ open Runner.xcworkspace
 
 다음 파일은 커밋하지 않습니다:
 
+- `.env` (실제 API 키)
 - `android/app/google-services.json`
 - `ios/Runner/GoogleService-Info.plist`
 - `serviceAccountKey.json`
-- `.env*`
 
-`.gitignore` 정책을 따르며, 팀원은 각자 Firebase 연결 단계를 수행해야 합니다.
-특히 `google-services.json`, `GoogleService-Info.plist`는 Git에 포함되지 않으므로 팀원별 `flutterfire configure` 실행이 필수입니다.
+팀원은 각자 `flutterfire configure`를 실행해 Firebase 연결 파일을 생성해야 합니다.
