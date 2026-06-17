@@ -5,23 +5,23 @@
 ## 시스템 아키텍처 설계
 
 ```
-[Android 스마트폰]                [PC / 서버]                  [라즈베리파이 4]
+[Android 스마트폰]                [PC / 서버]                  [라즈베리파이 5]
                                                                
- Flutter 앱                       Docker                       ble_receiver.py
-  ├─ 홈 화면 (출발 시각·알람)  ──▶  Firebase Auth  :9099        (BLE GATT 서버)
-  ├─ 알람 (전체화면·배너)      ──▶  Cloud Firestore :8080  ──▶  alarm_runner.py
-  ├─ 캘린더 (출결 기록)        ──▶  Cloud Functions :5001        (Firestore 구독)
-  ├─ 설정 (Wi-Fi 출결·BLE)                │                         │
-  └─ Wi-Fi 자동 출결 감지          generateDailyPlan           GPIO 알람 발동
-                                         │                    (LED + 부저)
-                              외부 API 호출
-                               ├─ 기상청 단기예보
+ Flutter 앱                       Docker                       nagaja_bridge.py
+  ├─ 홈 화면 (출발 시각·알람)  ──▶  Firebase Auth  :9099        (Firestore 실시간 구독)
+  ├─ 알람 (전체화면·배너)      ──▶  Cloud Firestore :8080  ──▶  WebSocket :8765
+  ├─ 캘린더 (출결 기록)        ──▶  Cloud Functions :5001             │
+  ├─ 설정 (Wi-Fi 출결)                   │                    timer_ui.html
+  └─ Wi-Fi 자동 출결 감지          generateDailyPlan         (Chromium 키오스크)
+                                         │                         │
+                              외부 API 호출                  GPIO 알람 발동
+                               ├─ 기상청 단기예보             (부저 GPIO 18)
                                ├─ TMAP 대중교통
                                └─ Kakao 지오코딩
 
-[BLE 연결]
- Flutter 앱 ──BLE(userId 전달)──▶ 라즈베리파이
- 라즈베리파이 ──Wi-Fi──▶ Firestore (dailyPlans 실시간 구독)
+[연결 구조]
+ 라즈베리파이 ──Wi-Fi──▶ Firestore (dailyPlans 실시간 구독 → 알람 시각 감시)
+ nagaja_bridge.py ──WebSocket(8765)──▶ timer_ui.html (7인치 터치스크린 표시)
 ```
 
 ### 핵심 계산 흐름
@@ -61,8 +61,8 @@ users/{userId}
 | 데이터베이스 | Cloud Firestore |
 | 인증 | Firebase Auth (Google 소셜 로그인) |
 | 외부 API | 기상청 단기예보, TMAP 대중교통, Kakao 지오코딩 |
-| IoT | Raspberry Pi 4, NeoPixel LED, 부저 |
-| BLE | flutter_blue_plus (Flutter) / bless (Python GATT 서버) |
+| IoT | Raspberry Pi 5, 7인치 공식 터치스크린, 부저 (GPIO 18) |
+| IoT 브리지 | firebase-admin (Python), websockets, RPi.GPIO |
 | 컨테이너 | Docker + Firebase Emulator Suite |
 | Firebase 프로젝트 | nagaja-a6a8b (asia-northeast3, 서울) |
 
@@ -212,11 +212,17 @@ docker compose logs backend
 ### 구성도
 
 ```
-[PC / Mac]                        [Android 스마트폰]        [라즈베리파이 4]
+[PC / Mac]                        [Android 스마트폰]        [라즈베리파이 5]
 Docker
- ├─ Firebase Auth    :9099  ←──── Flutter 앱          ←BLE── userId 전달
- ├─ Cloud Firestore  :8080  ←──── (동일 Wi-Fi)         ──Wi-Fi→ Firestore 구독
- └─ Cloud Functions  :5001  ←────
+ ├─ Firebase Auth    :9099  ←──── Flutter 앱          ─────── Wi-Fi
+ ├─ Cloud Firestore  :8080  ←──── (동일 Wi-Fi)                 nagaja_bridge.py
+ └─ Cloud Functions  :5001  ←────                              (Firestore 구독)
+                                                                     │
+                                                             WebSocket :8765
+                                                                     │
+                                                            timer_ui.html (7인치)
+                                                                     │
+                                                              GPIO 부저/버튼
 ```
 
 ### 사전 준비
@@ -225,7 +231,7 @@ Docker
 |------|-----------|
 | PC / Mac | Docker Desktop, Flutter SDK 3.x, Android Studio |
 | Android 스마트폰 | 개발자 모드 ON, USB 디버깅 활성화, PC와 동일 Wi-Fi |
-| 라즈베리파이 | Python 3, bluetooth/bluez, firebase-admin, RPi.GPIO |
+| 라즈베리파이 5 | Python 3, firebase-admin, websockets, RPi.GPIO, 7인치 공식 터치스크린 |
 
 ### 1단계 — Docker 백엔드 실행
 
@@ -315,44 +321,81 @@ flutter run
 
 **캘린더**: 하단 캘린더 탭 → 정시/지각/결석 표시 확인
 
-### 6단계 — 라즈베리파이 알람시계
+### 6단계 — 라즈베리파이 5 알람시계
+
+라즈베리파이 알람시계는 별도 Git 저장소에 있습니다:
+**`https://github.com/jeje9893/NaGaJa-raspi`**
 
 **동작 구조:**
 
 ```
-앱 ──BLE(userId, 초기 1회)──▶ 라즈베리파이 ──Wi-Fi──▶ Firestore 구독
-                                                        finalAlarmTime 감시
-                                                              │
-                                                        알람 시각 도달
-                                                              │
-                                                       LED + 부저 알람
+Firestore (dailyPlans) ──Wi-Fi──▶ nagaja_bridge.py ──WebSocket(8765)──▶ timer_ui.html
+                                         │                               (7인치 Chromium)
+                                   알람 시각 도달
+                                         │
+                                  GPIO 부저 알람 (핀 18)
+                                  버튼으로 해제 (핀 17)
 ```
+
+**GPIO 배선:**
+
+| 구성요소 | GPIO 핀 |
+|----------|---------|
+| 부저 (Buzzer) | GPIO 18 |
+| 버튼 (Button) | GPIO 17 |
 
 **Pi 초기 설정:**
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y bluetooth bluez python3-pip
+# 1. 라즈베리파이 프로젝트 클론
+git clone https://github.com/jeje9893/NaGaJa-raspi.git ~/nagaja
+cd ~/nagaja
 
-cd raspberry_pi
-pip3 install -r requirements.txt
+# 2. Python 가상환경 생성 및 패키지 설치
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install RPi.GPIO
 
-# Firebase 서비스 계정 키 배치 (절대 커밋 금지)
+# 3. Firebase 서비스 계정 키 배치 (절대 커밋 금지)
 # Firebase Console → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성
-# → raspberry_pi/serviceAccountKey.json 으로 저장
+# → ~/nagaja/serviceAccountKey.json 으로 저장
+
+# 4. nagaja_bridge.py 에서 userId 설정
+nano nagaja_bridge.py
+# FIRESTORE_USER_ID = "실제_사용자_uid"  ← Firebase Auth UID 입력
 ```
 
-**Pi 실행:**
+**Pi 실행 (수동):**
 
 ```bash
-# 터미널 1 — BLE 서버 (앱 연결 대기)
-sudo python3 raspberry_pi/ble_receiver.py
+cd ~/nagaja
+source venv/bin/activate
 
-# 터미널 2 — 알람 실행기 (Firestore 구독 + GPIO)
-python3 raspberry_pi/alarm_runner.py
+# 터미널 1 — Firestore 브리지 + GPIO
+python3 nagaja_bridge.py
+# 또는 UID를 인수로 전달
+python3 nagaja_bridge.py --uid <firebase-uid>
+
+# 터미널 2 — 7인치 터치스크린 UI (Chromium 키오스크)
+chromium-browser --kiosk --disable-infobars \
+  --window-size=800,480 \
+  http://localhost:8765
 ```
 
-**앱에서 연결**: 설정 탭 → 기기 연결 → **연결** 버튼 → `NaGaJa-Pi` 자동 연결 및 userId 전송
+**systemd 자동 시작 (부팅 시 자동 실행):**
+
+```bash
+# 서비스 파일 등록
+sudo cp nagaja-bridge.service /etc/systemd/system/
+sudo systemctl enable nagaja-bridge
+sudo systemctl start nagaja-bridge
+
+# 상태 확인
+sudo systemctl status nagaja-bridge
+```
+
+Chromium 키오스크도 `/etc/xdg/autostart/nagaja-ui.desktop`으로 부팅 시 자동 시작됩니다.
 
 ---
 
