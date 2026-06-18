@@ -1,8 +1,13 @@
 FROM node:20-slim
 
-# Java (Firebase Emulator 필수) + 기본 도구
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-21-jre-headless \
+# Java 21 (Firebase Emulator 필수) — Debian Bookworm 기본 저장소에 없으므로 Adoptium 저장소 추가
+RUN apt-get update && apt-get install -y --no-install-recommends wget gnupg ca-certificates \
+ && wget -qO /usr/share/keyrings/adoptium.gpg \
+    https://packages.adoptium.net/artifactory/api/gpg/key/public \
+ && echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] \
+    https://packages.adoptium.net/artifactory/deb bookworm main" \
+    > /etc/apt/sources.list.d/adoptium.list \
+ && apt-get update && apt-get install -y --no-install-recommends temurin-21-jre \
  && rm -rf /var/lib/apt/lists/*
 
 # Firebase CLI 설치
