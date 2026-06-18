@@ -43,4 +43,4 @@ CMD ["sh", "-c", \
        > /workspace/functions/.env \
      && firebase emulators:start \
           --only auth,functions,firestore \
-          --project demo-nagaja"]
+          --project nagaja-a6a8b"]
