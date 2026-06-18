@@ -2,7 +2,7 @@ FROM node:20-slim
 
 # Java (Firebase Emulator 필수) + 기본 도구
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless \
+    openjdk-21-jre-headless \
  && rm -rf /var/lib/apt/lists/*
 
 # Firebase CLI 설치
