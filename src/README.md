@@ -119,61 +119,91 @@ http://localhost:5001/demo-nagaja/asia-northeast3/
 
 ### 1단계 — 저장소 클론
 
-```bash
+> **PowerShell 새 창**을 열고 아래 명령어를 실행합니다. 폴더 위치는 어디든 상관없습니다.
+
+```powershell
 git clone <repository-url>
-cd NaGaJa
+cd NaGaJa          # 이 폴더가 저장소 루트 (docker-compose.yml이 여기 있음)
 ```
 
 ### 2단계 — 환경 변수 설정
 
+> 1단계에서 열어둔 **같은 PowerShell**에서 계속합니다. 현재 위치: 저장소 루트.
+
 **Windows (PowerShell):**
 ```powershell
 copy .env.example .env
-notepad .env
+notepad .env        # 파일이 열리면 API 키 입력 후 저장
 ```
 
-**macOS / Linux:**
+**macOS / Linux (터미널):**
 ```bash
 cp .env.example .env
 nano .env
 ```
 
+> API 키가 없어도 다음 단계로 진행할 수 있습니다. 날씨·교통 기능만 비활성화됩니다.
+
 ### 3단계 — 빌드 및 실행
 
-```bash
+> **같은 PowerShell**에서 실행합니다. 현재 위치: 저장소 루트 (`docker-compose.yml`이 있는 폴더).
+
+```powershell
 docker compose up -d
 ```
 
-처음 실행 시 이미지 빌드로 3~5분 소요됩니다. 로그 확인:
+처음 실행 시 이미지 빌드로 **5~10분** 소요됩니다 (이후 재실행은 수 초).
 
-```bash
+빌드가 끝나면 바로 로그를 확인합니다 (새 창 불필요, `-d`로 백그라운드 실행 중):
+
+```powershell
 docker compose logs -f
 ```
 
-준비 완료 시 출력:
+아래 두 줄이 보이면 정상 기동된 것입니다:
 ```
-✔  All emulators ready! It is now safe to connect your app.
+✔  firestore: Firestore Emulator was started in standard edition.
+✔  functions: Using node@20 from host.
 ```
+
+> `All emulators ready!` 메시지가 안 보여도 위 두 줄이 있으면 정상입니다.  
+> `Ctrl+C`로 로그 보기를 종료해도 컨테이너는 계속 실행됩니다.
 
 ### 4단계 — 동작 확인
 
-| 서비스 | URL |
-|--------|-----|
-| Firebase Emulator UI | http://localhost:4000 |
-| Cloud Functions | http://localhost:5001 |
-| Firestore | http://localhost:8080 |
-| Auth | http://localhost:9099 |
+브라우저에서 아래 URL을 열어 각 서비스가 응답하는지 확인합니다.
+
+| 서비스 | URL | 정상 응답 |
+|--------|-----|-----------|
+| Firebase Emulator UI | http://localhost:4000 | 대시보드 화면 |
+| Cloud Functions | http://localhost:5001 | 페이지 없음(404) — 정상 |
+| Firestore | http://localhost:8080 | 텍스트 응답 |
+| Auth | http://localhost:9099 | 텍스트 응답 |
 
 ### 5단계 — Cloud Functions 테스트
 
-```bash
-curl -X POST \
-  "http://localhost:5001/demo-nagaja/asia-northeast3/generateDailyPlan" \
-  -H "Content-Type: application/json" \
-  -d '{"userId": "test-user-001", "planDate": "2026-01-01"}'
+> **같은 PowerShell** (또는 새 PowerShell 창)에서 아래 명령어를 **순서대로** 실행합니다.  
+> `generateDailyPlan`은 Firestore에 유저·시간표 데이터가 있어야 하므로 1→2→3 순서를 지켜야 합니다.
+
+**① 테스트 유저 생성**
+```powershell
+Invoke-RestMethod `
+  -Method POST `
+  -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/createUser" `
+  -ContentType "application/json" `
+  -Body '{"userId":"test-user-001"}'
 ```
 
-**Windows PowerShell:**
+**② 테스트 시간표 생성**
+```powershell
+Invoke-RestMethod `
+  -Method POST `
+  -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/createSchedule" `
+  -ContentType "application/json" `
+  -Body '{"userId":"test-user-001"}'
+```
+
+**③ 일일 플랜 생성 요청**
 ```powershell
 Invoke-RestMethod `
   -Method POST `
@@ -181,6 +211,10 @@ Invoke-RestMethod `
   -ContentType "application/json" `
   -Body '{"userId":"test-user-001","planDate":"2026-01-01"}'
 ```
+
+> API 키가 없으면 `planStatus: "FAILED"` 또는 `fallbackUsed: true`로 응답합니다.  
+> 이것도 **정상**입니다 — Functions가 호출되고 Firestore에 기록까지 된 것입니다.  
+> `http://localhost:4000` → Firestore 탭에서 생성된 문서를 확인할 수 있습니다.
 
 ### 컨테이너 관리
 
@@ -237,14 +271,23 @@ Docker
 
 ### 1단계 — Docker 백엔드 실행
 
-위의 "Docker로 백엔드 실행하기" 섹션을 완료합니다.
+> **터미널 1 (PowerShell)**: 저장소 루트에서 아래 명령어를 실행합니다.
 
-### 2단계 — PC 로컬 IP 확인 (스마트폰 연결 시)
+```powershell
+docker compose up -d
+```
+
+`✔ functions: Using node@20 from host.` 가 로그에 보이면 준비 완료입니다.  
+이 터미널은 닫아도 되고 그대로 두어도 됩니다 (컨테이너는 백그라운드에서 계속 실행됩니다).
+
+### 2단계 — PC 로컬 IP 확인 (실제 스마트폰 사용 시만)
+
+> **터미널 1 (같은 PowerShell)**에서 실행합니다. Android 에뮬레이터를 쓸 경우 이 단계는 건너뜁니다.
 
 **Windows:**
 ```powershell
 ipconfig
-# IPv4 주소: 192.168.x.x
+# 출력 중 "IPv4 주소 . . . . : 192.168.x.x" 값을 메모
 ```
 
 **macOS / Linux:**
@@ -253,6 +296,8 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 ```
 
 ### 3단계 — Flutter 앱을 Docker 에뮬레이터에 연결 (선택)
+
+> **터미널이 아닌 에디터(VS Code 또는 Android Studio)**에서 파일을 직접 수정합니다.
 
 기본 앱은 프로덕션 Firebase에 연결됩니다. Docker 에뮬레이터로 테스트하려면
 `NaGaJa/lib/main.dart`의 `Firebase.initializeApp()` 직후에 아래 코드를 추가합니다.
@@ -266,8 +311,8 @@ import 'package:flutter/foundation.dart';
 
 // Firebase.initializeApp() 직후 삽입
 if (kDebugMode) {
-  // 실제 스마트폰: PC 로컬 IP 사용
-  // Android 에뮬레이터: 10.0.2.2 사용
+  // 실제 스마트폰: 2단계에서 확인한 PC 로컬 IP 입력
+  // Android 에뮬레이터: 10.0.2.2 고정
   const host = '192.168.x.x';
   FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
   await FirebaseAuth.instance.useAuthEmulator(host, 9099);
@@ -280,11 +325,19 @@ if (kDebugMode) {
 
 ### 4단계 — 앱 실행
 
+> **터미널 2를 새로 엽니다** (터미널 1은 Docker용으로 유지).  
+> 새 PowerShell 창에서 Flutter 앱 폴더로 이동합니다.
+
+```powershell
+cd C:\...\NaGaJa\NaGaJa    # 저장소 루트 아래 NaGaJa 폴더 (pubspec.yaml이 있는 곳)
+```
+
 #### 방법 A: 실제 스마트폰 (BLE·Wi-Fi 기능 테스트 가능)
 
-```bash
-cd NaGaJa
-flutter devices   # 스마트폰이 목록에 표시되면 준비 완료
+USB로 스마트폰을 연결하고 **개발자 모드 + USB 디버깅**을 활성화한 후:
+
+```powershell
+flutter devices        # 스마트폰 이름이 목록에 보이면 준비 완료
 flutter pub get
 flutter run
 ```
@@ -292,12 +345,12 @@ flutter run
 #### 방법 B: Android Studio 에뮬레이터 (BLE·Wi-Fi SSID 미지원)
 
 1. Android Studio → **Device Manager** → **Create Virtual Device**
-2. Pixel 7 선택 → API 34 (Android 14) → Finish → ▶ 실행
-3. `host`를 `10.0.2.2`로 변경 후:
+2. Pixel 7 선택 → API 34 (Android 14) → Finish → ▶ 클릭해서 에뮬레이터 실행
+3. 3단계에서 `host`를 `'10.0.2.2'`로 변경 (에뮬레이터 전용 loopback 주소)
+4. **터미널 2 (새 PowerShell)**에서:
 
-```bash
-cd NaGaJa
-flutter devices   # emulator-XXXX 항목 확인
+```powershell
+flutter devices        # emulator-XXXX 항목이 보이면 준비 완료
 flutter pub get
 flutter run
 ```
