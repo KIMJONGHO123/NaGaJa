@@ -10,12 +10,28 @@ import 'views/auth/login_screen.dart';
 import 'views/main_shell.dart';
 import 'views/onboarding/onboarding_screen.dart';
 
+// 도커로 테스트 할 때만 추가
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+// 도커로 테스트 할 때만 추가
+
 // 앱 전역 NavigatorKey — AlarmService에서 컨텍스트 없이 AlarmScreen으로 navigate할 때 사용
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Firebase.initializeApp() 직후 삽입 도커로 테스트할 때만 추가
+  if (kDebugMode) {
+    // Android 에뮬레이터 전용 loopback 주소 (호스트 PC의 localhost를 가리킴)
+    // 실제 스마트폰: PC의 IPv4 주소 (ipconfig로 확인)
+    const host = '10.0.2.2';
+    FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+    await FirebaseAuth.instance.useAuthEmulator(host, 9099);
+  }
+  //도커로 테스트할 때만 추가
+
   await AlarmService.instance.initialize();
   runApp(const NagajaApp());
 }

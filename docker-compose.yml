@@ -10,6 +10,13 @@ services:
       - "9099:9099"   # Auth
     env_file:
       - .env
+    command: >
+      sh -c "printf 'WEATHER_SERVICE_KEY=%s\nKAKAO_REST_API_KEY=%s\nTMAP_APP_KEY=%s\n'
+        \"$$WEATHER_SERVICE_KEY\" \"$$KAKAO_REST_API_KEY\" \"$$TMAP_APP_KEY\"
+        > /workspace/functions/.env
+      && firebase emulators:start
+           --only auth,functions,firestore
+           --project nagaja-a6a8b"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000"]
       interval: 10s

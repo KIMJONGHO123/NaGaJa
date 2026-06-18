@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -10,6 +12,33 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
+
+  Future<void> _handleTestSignIn() async {
+    setState(() => _isLoading = true);
+    try {
+      const email = 'test@nagaja.dev';
+      const password = 'test1234';
+      try {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email, password: password);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+            email: email, password: password);
+        } else {
+          rethrow;
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('테스트 로그인 오류: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   Future<void> _handleGoogleSignIn() async {
     setState(() => _isLoading = true);
@@ -133,6 +162,25 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                 ),
               ),
+
+              if (kDebugMode) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: _isLoading ? null : _handleTestSignIn,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.grey[700],
+                      side: BorderSide(color: Colors.grey[400]!),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('[에뮬레이터] 테스트 계정으로 로그인'),
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 16),
               Text(
