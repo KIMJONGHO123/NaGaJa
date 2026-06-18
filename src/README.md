@@ -160,13 +160,14 @@ docker compose up -d
 docker compose logs -f
 ```
 
-아래 두 줄이 보이면 정상 기동된 것입니다:
+아래 메시지들이 보이면 정상 기동된 것입니다:
 ```
-✔  firestore: Firestore Emulator was started in standard edition.
-✔  functions: Using node@20 from host.
+✔  functions[asia-northeast3-createUser]: http function initialized (...)
+✔  functions[asia-northeast3-createSchedule]: http function initialized (...)
+✔  functions[asia-northeast3-generateDailyPlan]: http function initialized (...)
+✔  All emulators ready!
 ```
 
-> `All emulators ready!` 메시지가 안 보여도 위 두 줄이 있으면 정상입니다.  
 > `Ctrl+C`로 로그 보기를 종료해도 컨테이너는 계속 실행됩니다.
 
 ### 4단계 — 동작 확인
@@ -186,30 +187,49 @@ docker compose logs -f
 > `generateDailyPlan`은 Firestore에 유저·시간표 데이터가 있어야 하므로 1→2→3 순서를 지켜야 합니다.
 
 **① 테스트 유저 생성**
+
+`createUser`는 Firestore에 목업 유저 2명을 생성합니다. 본문은 필요 없습니다.
+
 ```powershell
 Invoke-RestMethod `
   -Method POST `
   -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/createUser" `
   -ContentType "application/json" `
-  -Body '{"userId":"test-user-001"}'
+  -Body '{}'
 ```
 
-**② 테스트 시간표 생성**
+`Users create successfully` 응답이 오면 성공입니다.
+
+**② userId 확인 (Emulator UI)**
+
+`createUser`는 **자동 생성 ID**를 사용합니다. `createSchedule`에 사용할 userId는 Emulator UI에서 확인합니다.
+
+1. 브라우저에서 `http://localhost:4000` 접속
+2. **Firestore** 탭 → `users` 컬렉션 클릭
+3. 문서 하나를 클릭해 `userId` 필드 값을 복사 (예: `Q2GP1VQ3PXY6QIiPpwC1`)
+
+**③ 테스트 시간표 생성**
+
+`<복사한_userId>` 자리에 ②에서 복사한 값을 붙여넣습니다.
+
 ```powershell
 Invoke-RestMethod `
   -Method POST `
   -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/createSchedule" `
   -ContentType "application/json" `
-  -Body '{"userId":"test-user-001"}'
+  -Body '{"userId":"<복사한_userId>"}'
 ```
 
-**③ 일일 플랜 생성 요청**
+`Schedule create successfully` 응답이 오면 성공입니다.
+
+**④ 일일 플랜 생성 요청**
+
 ```powershell
 Invoke-RestMethod `
   -Method POST `
   -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/generateDailyPlan" `
   -ContentType "application/json" `
-  -Body '{"userId":"test-user-001","planDate":"2026-01-01"}'
+  -Body '{"userId":"<복사한_userId>","planDate":"2026-01-01"}'
 ```
 
 > API 키가 없으면 `planStatus: "FAILED"` 또는 `fallbackUsed: true`로 응답합니다.  

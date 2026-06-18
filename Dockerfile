@@ -35,7 +35,12 @@ WORKDIR /workspace
 # Emulator UI(4000), Functions(5001), Firestore(8080), Auth(9099)
 EXPOSE 4000 5001 8080 9099
 
-# demo 프로젝트로 실행 — Firebase 계정 인증 불필요
-CMD ["firebase", "emulators:start", \
-     "--only", "auth,functions,firestore", \
-     "--project", "demo-nagaja"]
+# firebase-functions/params 가 .env 파일에서 파라미터 값을 읽으므로,
+# 컨테이너 환경변수를 functions/.env 로 내보낸 뒤 에뮬레이터 실행
+CMD ["sh", "-c", \
+     "printf 'WEATHER_SERVICE_KEY=%s\\nKAKAO_REST_API_KEY=%s\\nTMAP_APP_KEY=%s\\n' \
+       \"$WEATHER_SERVICE_KEY\" \"$KAKAO_REST_API_KEY\" \"$TMAP_APP_KEY\" \
+       > /workspace/functions/.env \
+     && firebase emulators:start \
+          --only auth,functions,firestore \
+          --project demo-nagaja"]
