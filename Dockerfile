@@ -1,13 +1,9 @@
-FROM node:20-slim
+FROM eclipse-temurin:21-jre-jammy
 
-# Java 21 (Firebase Emulator 필수) — Debian Bookworm 기본 저장소에 없으므로 Adoptium 저장소 추가
-RUN apt-get update && apt-get install -y --no-install-recommends wget gnupg ca-certificates \
- && wget -qO /usr/share/keyrings/adoptium.gpg \
-    https://packages.adoptium.net/artifactory/api/gpg/key/public \
- && echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] \
-    https://packages.adoptium.net/artifactory/deb bookworm main" \
-    > /etc/apt/sources.list.d/adoptium.list \
- && apt-get update && apt-get install -y --no-install-recommends temurin-21-jre \
+# Node.js 20 설치 (Firebase CLI 실행에 필요)
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
 
 # Firebase CLI 설치
@@ -19,6 +15,11 @@ WORKDIR /workspace
 COPY NaGaJa/firebase.json .
 COPY NaGaJa/.firebaserc .
 COPY NaGaJa/firestore.rules .
+
+# 에뮬레이터 바이너리를 빌드 시간에 미리 다운로드 (컨테이너 시작 지연 방지)
+RUN firebase setup:emulators:firestore --project demo-nagaja \
+ && firebase setup:emulators:ui --project demo-nagaja \
+ && firebase setup:emulators:storage --project demo-nagaja 2>/dev/null || true
 
 # Cloud Functions 의존성 설치 및 빌드
 WORKDIR /workspace/functions
