@@ -101,7 +101,7 @@ cp .env.example .env
 
 에뮬레이터 실행 시 Functions 베이스 URL:
 ```
-http://localhost:5001/demo-nagaja/asia-northeast3/
+http://localhost:5001/nagaja-a6a8b/asia-northeast3/
 ```
 
 ---
@@ -193,7 +193,7 @@ docker compose logs -f
 ```powershell
 Invoke-RestMethod `
   -Method POST `
-  -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/createUser" `
+  -Uri "http://localhost:5001/nagaja-a6a8b/asia-northeast3/createUser" `
   -ContentType "application/json" `
   -Body '{}'
 ```
@@ -215,7 +215,7 @@ Invoke-RestMethod `
 ```powershell
 Invoke-RestMethod `
   -Method POST `
-  -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/createSchedule" `
+  -Uri "http://localhost:5001/nagaja-a6a8b/asia-northeast3/createSchedule" `
   -ContentType "application/json" `
   -Body '{"userId":"<복사한_userId>"}'
 ```
@@ -227,7 +227,7 @@ Invoke-RestMethod `
 ```powershell
 Invoke-RestMethod `
   -Method POST `
-  -Uri "http://localhost:5001/demo-nagaja/asia-northeast3/generateDailyPlan" `
+  -Uri "http://localhost:5001/nagaja-a6a8b/asia-northeast3/generateDailyPlan" `
   -ContentType "application/json" `
   -Body '{"userId":"<복사한_userId>","planDate":"2026-01-01"}'
 ```
@@ -315,33 +315,23 @@ ipconfig
 ifconfig | grep "inet " | grep -v 127.0.0.1
 ```
 
-### 3단계 — Flutter 앱을 Docker 에뮬레이터에 연결 (선택)
+### 3단계 — Flutter 앱의 에뮬레이터 연결 설정
 
-> **터미널이 아닌 에디터(VS Code 또는 Android Studio)**에서 파일을 직접 수정합니다.
+> **`NaGaJa/lib/main.dart`에 이미 구현되어 있습니다.** 별도 코드 추가 없이 `flutter run`으로 바로 연결됩니다.
 
-기본 앱은 프로덕션 Firebase에 연결됩니다. Docker 에뮬레이터로 테스트하려면
-`NaGaJa/lib/main.dart`의 `Firebase.initializeApp()` 직후에 아래 코드를 추가합니다.
+- **Android 에뮬레이터 사용 시**: `host = '10.0.2.2'` (고정) — 수정 불필요
+- **실제 스마트폰 사용 시**: `main.dart` 29번 줄 `const host = '10.0.2.2';`를 2단계에서 확인한 PC의 IPv4 주소로 변경
 
 ```dart
-// main.dart 상단 import 추가
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_functions/firebase_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
-
-// Firebase.initializeApp() 직후 삽입
+// main.dart — Firebase.initializeApp() 직후 (이미 적용됨)
 if (kDebugMode) {
-  // 실제 스마트폰: 2단계에서 확인한 PC 로컬 IP 입력
-  // Android 에뮬레이터: 10.0.2.2 고정
-  const host = '192.168.x.x';
+  const host = '10.0.2.2';          // 실제 기기: ipconfig로 확인한 PC IP로 교체
   FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
   await FirebaseAuth.instance.useAuthEmulator(host, 9099);
-  FirebaseFunctions.instanceFor(region: 'asia-northeast3')
-      .useFunctionsEmulator(host, 5001);
 }
 ```
 
-> 테스트 완료 후 반드시 제거하거나 주석 처리하세요.
+> `kDebugMode` 블록은 `flutter build --release` 시 자동으로 제거됩니다.
 
 ### 4단계 — 앱 실행
 
@@ -386,7 +376,9 @@ flutter run
 
 ### 5단계 — 전체 기능 플로우 테스트
 
-**온보딩**: Google 로그인 → 이름·준비시간 입력 → 출발지·목적지 주소 검색 → 수업 시간표 등록
+**온보딩**: **`[에뮬레이터] 테스트 계정으로 로그인`** 버튼 탭 (`kDebugMode`에서만 표시, `test@nagaja.dev` 자동 생성·로그인) → 이름·준비시간 입력 → 출발지·목적지 주소 검색 → 수업 시간표 등록
+
+> Google OAuth는 Auth 에뮬레이터에서 동작하지 않습니다. 실제 Firebase 프로젝트(`nagaja-a6a8b`)에 연결한 경우에만 Google 로그인을 사용하세요.
 
 **홈 화면**: 새로고침 버튼 → `generateDailyPlan` 호출 → 기상 알람·날씨·혼잡도 카드 확인
 
