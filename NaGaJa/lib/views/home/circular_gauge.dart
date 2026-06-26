@@ -111,8 +111,9 @@ class CircularGauge extends StatelessWidget {
     } else if (isGoNow) {
       statusColor = _orange;
       statusLabel = '나가자!';
-      timeDisplay = _fmt(remaining);
-      subtext = '수업까지 남은 시간';
+      final untilDepart = shouldDepartAt.difference(now);
+      timeDisplay = _fmt(untilDepart.isNegative ? Duration.zero : untilDepart);
+      subtext = '출발까지 남은 시간';
     } else {
       statusColor = _green;
       statusLabel = '여유';
