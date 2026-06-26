@@ -10,7 +10,7 @@
 ---
 
 ## 시연 영상
-URL : https://youtu.be/-DxUNVbQnDY
+- URL : https://youtu.be/-DxUNVbQnDY
 ---
 
 ## 개인 프로젝트 결과 보고서(영상)
