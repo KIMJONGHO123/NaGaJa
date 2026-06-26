@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'firebase_options.dart';
 import 'services/alarm_service.dart';
 import 'services/background_audio_service.dart';
@@ -20,6 +21,8 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // .env 로드 (KAKAO_REST_API_KEY 등). 파일이 없어도 앱이 죽지 않도록 무시.
+  await dotenv.load(fileName: '.env').catchError((_) {});
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Firebase.initializeApp() 직후 삽입 도커로 테스트할 때만 추가

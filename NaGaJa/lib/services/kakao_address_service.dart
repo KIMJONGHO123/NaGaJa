@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../config/kakao_config.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class KakaoPlace {
   final String placeName;
@@ -22,7 +22,10 @@ class KakaoAddressService {
   KakaoAddressService._();
   static final instance = KakaoAddressService._();
 
+  String get _kakaoRestApiKey => dotenv.env['KAKAO_REST_API_KEY'] ?? '';
+
   Future<List<KakaoPlace>> search(String query) async {
+    final kakaoRestApiKey = _kakaoRestApiKey;
     if (query.trim().isEmpty || kakaoRestApiKey.isEmpty) return [];
     try {
       final uri = Uri.https('dapi.kakao.com', '/v2/local/search/keyword.json', {
