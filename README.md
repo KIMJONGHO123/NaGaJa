@@ -15,8 +15,8 @@ URL : https://youtu.be/-DxUNVbQnDY
 
 ## 개인 프로젝트 결과 보고서(영상)
 곽우석 : https://www.youtube.com/watch?v=8AjKS2kHQpY
-
 김종호 : https://youtu.be/BoFWWlWyQGY
+
 ---
 
 ## 📋 1. 프로젝트 개요
