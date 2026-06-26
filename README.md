@@ -15,7 +15,8 @@
 
 ## 개인 프로젝트 결과 보고서(영상)
 - 곽우석 : https://www.youtube.com/watch?v=8AjKS2kHQpY  
-- 김종호 : https://youtu.be/BoFWWlWyQGY  
+- 김종호 : https://youtu.be/BoFWWlWyQGY
+- 허재경 : https://youtu.be/f91R4P68tTA?si=lbKcU7y0bjmtHKSo
 ---
 
 ## 📋 1. 프로젝트 개요
@@ -26,18 +27,31 @@
 <img width="2752" height="1536" alt="스마트_동적_알람_시스템_나가자" src="https://github.com/user-attachments/assets/a49532c7-33bb-48b7-ba01-82b2c15f2c90" />
 
 ```text
-├── NaGaJa/              # 소스 코드 (Flutter 앱 + Cloud Functions)
+├── NaGaJa/              # 소스 코드 본체 (Flutter 앱 + Cloud Functions)
 │   ├── lib/             # Flutter 모바일 앱 (프론트엔드, Dart)
 │   └── functions/       # Firebase Cloud Functions (백엔드, TypeScript)
+├── Backend/             # 백엔드 안내 문서 (실제 코드는 NaGaJa/functions/)
+│   └── README.md        # Docker로 Cloud Functions 에뮬레이터 실행 방법
+├── Mobile/              # 모바일 안내 문서 (실제 코드는 NaGaJa/)
+│   └── README.md        # Flutter 빌드·실행 방법
+├── raspberry_pi/        # 라즈베리파이 5 물리 알람시계 코드 (Python)
+│   ├── ble_receiver.py  # BLE GATT 서버 — 앱에서 userId 수신·저장 (최초 1회)
+│   ├── alarm_runner.py  # Firestore dailyPlans 구독 → finalAlarmTime에 GPIO 알람
+│   └── requirements.txt # Python 의존성 (firebase-admin 등)
 ├── docs/                # 프로젝트 문서
 │   ├── meeting-logs/    # 회의록
 │   ├── papers/          # 논문/보고서
 │   └── presentations/   # 발표 자료
 ├── src/
-│   └── README.md        # 시스템 아키텍처 설명 및 실행 가이드
+│   └── README.md        # 시스템 아키텍처 설명 및 실행 가이드 (메인 기술 문서)
+├── docker-compose.yml   # Firebase 에뮬레이터 컨테이너 구성 (백엔드 실행)
+├── Dockerfile           # 백엔드(에뮬레이터) 이미지 빌드 정의
+├── .env.example         # 환경 변수 템플릿 (API 키) — 복사해서 .env 생성
+├── CLAUDE.md            # AI 에이전트용 작업 가이드
+├── PROJECT_DESCRIPTION.md  # 프로젝트 상세 설명
 └── README.md            # 레포지토리 메인 안내 (프로젝트 개요 및 문서 링크 중심)
 
-# 라즈베리파이 알람시계 (별도 저장소)
+# 라즈베리파이 알람시계 (별도 저장소, 위 raspberry_pi/의 전체 버전)
 # https://github.com/jeje9893/NaGaJa-raspi
 ```
 
@@ -48,7 +62,6 @@
 본 프로젝트의 아키텍처 설계, 기술 스택, 구체적인 빌드 및 실행 방법은 아래 기술 문서(README)를 참고해 주세요.
 
 - 👉 [소스코드 실행 방법 및 아키텍처 가이드 바로가기](src/README.md)
-- 👉 [아카이브 사이트 제출 가이드](src/archive.md)
 
 ---
 
