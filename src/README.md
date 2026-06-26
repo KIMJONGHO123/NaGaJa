@@ -106,21 +106,9 @@ NaGaJa/                                       ← 저장소 루트 (clone한 폴
 | `TMAP_APP_KEY` | SKT 개발자센터 | TMAP 대중교통 경로 API 키 |
 | `KAKAO_REST_API_KEY` | Kakao Developers | 주소 → 좌표 변환(지오코딩) API 키 |
 
-### 셋업 명령
 
-```powershell
-# 저장소 루트(clone한 NaGaJa 폴더)에서 — PowerShell
-copy .env.example .env       # 1) 루트 .env 생성 후 키 입력
-copy .env NaGaJa\.env        # 2) Flutter 폴더로 복사 (flutter_dotenv가 읽음)
-```
 
-```bash
-# macOS / Linux
-cp .env.example .env
-cp .env NaGaJa/.env
-```
-
-> **`.env`가 두 곳 필요한 이유**: 백엔드용 `.env`(저장소 루트, `NaGaJa/functions/.env`)와 별개로, Flutter 앱은 **Flutter 프로젝트 폴더(`NaGaJa/NaGaJa/.env`)** 안의 `.env`를 asset으로 번들링해서 읽습니다(`pubspec.yaml`의 `assets:`에 `.env` 등록됨).
+> **`.env`가 여러 곳 필요한 이유**: 백엔드용 `.env`(저장소 루트, `NaGaJa/functions/.env`)와 별개로, Flutter 앱은 **Flutter 프로젝트 폴더(`NaGaJa/NaGaJa/.env`)** 안의 `.env`를 asset으로 번들링해서 읽습니다(`pubspec.yaml`의 `assets:`에 `.env` 등록됨).
 >
 > 단, `.env`는 앱 번들에 포함되므로 Flutter용 `.env`(`NaGaJa/NaGaJa/.env`)에는 가급적 `KAKAO_REST_API_KEY`만 남기세요 (`WEATHER_SERVICE_KEY`/`TMAP_APP_KEY`는 백엔드 전용).
 >
@@ -221,7 +209,7 @@ docker compose logs -f
 | Firestore | http://localhost:8080 | 텍스트 응답 |
 | Auth | http://localhost:9099 | 텍스트 응답 |
 
-### 5단계 — Cloud Functions 테스트
+### 5단계 — Cloud Functions 테스트 (필수 실행할 필요 없음)
 
 > **같은 PowerShell** (또는 새 PowerShell 창)에서 아래 명령어를 **순서대로** 실행합니다.  
 > `generateDailyPlan`은 Firestore에 유저·시간표 데이터가 있어야 하므로 1→2→3 순서를 지켜야 합니다.
