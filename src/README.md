@@ -70,13 +70,35 @@ users/{userId}
 
 ---
 
-## 환경 변수
+## 환경 변수 · 새 환경에서 직접 생성해야 하는 파일
+
+아래 파일들은 보안상 **Git에 커밋되지 않으므로**, 새 환경(새로 clone하거나 다른 PC, Docker 등)에서는 **직접 만들어 넣어야 빌드가 됩니다.** 없으면 `flutter run`이 컴파일/Gradle 단계에서 실패합니다.
+
+### 배치 위치
+
+경로는 모두 `git clone`으로 받은 **저장소 루트** 기준입니다. (저장소 루트와 Flutter 폴더 이름이 둘 다 `NaGaJa`라 헷갈리기 쉬움)
+
+```
+NaGaJa/                                       ← 저장소 루트 (clone한 폴더, docker-compose.yml 위치)
+├── .env                                      ← [필수] 공용/백엔드 키 (functions가 참조)
+├── .env.example                              ← 템플릿 (커밋됨, 이걸 복사해서 .env 생성)
+└── NaGaJa/                                    ← Flutter 프로젝트 (pubspec.yaml 위치)
+    ├── .env                                   ← ★[필수] Flutter 앱용 (flutter_dotenv asset)
+    ├── functions/.env                         ← [필수] Cloud Functions용 (Docker가 참조)
+    ├── android/app/google-services.json       ← ★[필수] Firebase Android 설정
+    └── ios/Runner/GoogleService-Info.plist    ← [iOS 빌드 시] Firebase iOS 설정
+```
+
+| 배치 위치 (저장소 루트 기준) | 용도 | 없을 때 증상 | 얻는 방법 |
+|------------------------------|------|--------------|-----------|
+| `.env` (저장소 루트) / `NaGaJa/functions/.env` | 백엔드(기상청·TMAP·Kakao) 키 | `generateDailyPlan` 실패 / `fallbackUsed:true` | 저장소 루트 `.env.example` 복사 → 키 입력 |
+| `NaGaJa/.env` | Kakao API 키 등 (Flutter가 `flutter_dotenv`로 읽음) | `kakao_address_service` 컴파일 에러 또는 주소검색 무동작 | 저장소 루트 `.env`를 이 위치로 복사 (아래 명령) |
+| `NaGaJa/android/app/google-services.json` | Firebase Android 설정 | Gradle `processDebugGoogleServices … File google-services.json is missing` | `flutterfire configure` 실행 또는 팀에서 파일 전달받아 배치 |
+| `NaGaJa/ios/Runner/GoogleService-Info.plist` | Firebase iOS 설정 | iOS 빌드 실패 | `flutterfire configure` |
+
+### `.env` 키 목록
 
 `.env.example`을 복사해 `.env`를 만들고 아래 키를 입력합니다.
-
-```bash
-cp .env.example .env
-```
 
 | 변수명 | 발급처 | 설명 |
 |--------|--------|------|
@@ -84,7 +106,25 @@ cp .env.example .env
 | `TMAP_APP_KEY` | SKT 개발자센터 | TMAP 대중교통 경로 API 키 |
 | `KAKAO_REST_API_KEY` | Kakao Developers | 주소 → 좌표 변환(지오코딩) API 키 |
 
-> `.env` 파일은 `.gitignore`로 추적에서 제외됩니다. 실제 키를 커밋하지 마세요.
+### 셋업 명령
+
+```powershell
+# 저장소 루트(clone한 NaGaJa 폴더)에서 — PowerShell
+copy .env.example .env       # 1) 루트 .env 생성 후 키 입력
+copy .env NaGaJa\.env        # 2) Flutter 폴더로 복사 (flutter_dotenv가 읽음)
+```
+
+```bash
+# macOS / Linux
+cp .env.example .env
+cp .env NaGaJa/.env
+```
+
+> **`.env`가 두 곳 필요한 이유**: 백엔드용 `.env`(저장소 루트, `NaGaJa/functions/.env`)와 별개로, Flutter 앱은 **Flutter 프로젝트 폴더(`NaGaJa/NaGaJa/.env`)** 안의 `.env`를 asset으로 번들링해서 읽습니다(`pubspec.yaml`의 `assets:`에 `.env` 등록됨).
+>
+> 단, `.env`는 앱 번들에 포함되므로 Flutter용 `.env`(`NaGaJa/NaGaJa/.env`)에는 가급적 `KAKAO_REST_API_KEY`만 남기세요 (`WEATHER_SERVICE_KEY`/`TMAP_APP_KEY`는 백엔드 전용).
+>
+> `.env` · `google-services.json` 등은 모두 `.gitignore`로 추적에서 제외됩니다. 실제 키를 커밋하지 마세요.
 
 ---
 
@@ -473,6 +513,8 @@ Chromium 키오스크도 `/etc/xdg/autostart/nagaja-ui.desktop`으로 부팅 시
 
 ## 모바일 앱 빌드
 
+> **먼저** [환경 변수 · 새 환경에서 직접 생성해야 하는 파일](#환경-변수--새-환경에서-직접-생성해야-하는-파일) 섹션의 `.env`·`google-services.json` 배치를 완료하세요. 없으면 `flutter run`이 컴파일/Gradle 단계에서 실패합니다.
+
 ```bash
 cd NaGaJa
 flutter pub get
@@ -537,11 +579,11 @@ npm run serve   # Firebase 에뮬레이터 직접 실행
 
 ## 보안/커밋 정책
 
-다음 파일은 커밋하지 않습니다:
+다음 파일은 커밋하지 않습니다 (새 환경에서 직접 배치 필요 — [모바일 앱 빌드](#모바일-앱-빌드) 참고):
 
-- `.env` (API 키)
+- `.env` (API 키) — 저장소 루트 / `NaGaJa/functions/.env`(백엔드) / **`NaGaJa/.env`(Flutter 앱)**
 - `NaGaJa/android/app/google-services.json`
 - `NaGaJa/ios/Runner/GoogleService-Info.plist`
 - `raspberry_pi/serviceAccountKey.json`
 
-팀원은 각자 `flutterfire configure`를 실행해 Firebase 연결 파일을 생성해야 합니다.
+팀원은 각자 `flutterfire configure`를 실행해 Firebase 연결 파일을 생성하고, `.env`를 복사해 키를 입력해야 합니다.
